@@ -33,3 +33,8 @@ jobs:
           for test_file in tests/test_*.lua; do
             lua5.1 "$test_file"
           done
+
+      - name: Check browser exporter
+        run: |
+          node --check tools/export-bookshelf.js
+          node tests/test_export_bookshelf.js

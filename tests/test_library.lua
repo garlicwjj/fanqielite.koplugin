@@ -79,4 +79,41 @@ local missing, err = Library.upsert(invalid, { id = "bad" }, {}, nil, 700)
 equal(missing, nil, "invalid upsert rejected")
 assert(err:find("ID", 1, true), "invalid upsert error missing")
 
+local import_target = Library.new()
+local existing = assert(Library.upsert(import_target, {
+    id = "7234567890123456789", title = "本地书名", author = "本地作者",
+}, { chapter("20000000001"), chapter("20000000002") }, 2, 800))
+local added, updated = Library.import_books(import_target, {
+    {
+        id = existing.id, title = "导入书名", author = "", cover_url = "",
+        imported_progress = { chapter_id = "20000000001", chapter_title = "第一章", position = 0.2 },
+    },
+    {
+        id = "7334567890123456789", title = "导入新书", author = "作者丙",
+        cover_url = "https://example.invalid/cover.jpg",
+        imported_progress = { chapter_id = "30000000002", chapter_title = "第二章", position = 0.4 },
+    },
+}, 900)
+equal(added, 1, "import added count")
+equal(updated, 1, "import updated count")
+equal(existing.title, "导入书名", "import updates title")
+equal(existing.author, "本地作者", "empty import author does not erase local author")
+equal(#existing.chapters, 2, "import preserves local directory")
+equal(existing.current_index, 2, "import preserves local progress")
+
+local imported = assert(Library.find(import_target, "7334567890123456789"))
+equal(#imported.chapters, 0, "new import starts without fabricated directory")
+equal(imported.imported_progress.chapter_id, "30000000002", "imported chapter retained")
+local refreshed_import = assert(Library.upsert(import_target, {
+    id = imported.id, title = imported.title, author = imported.author,
+}, {
+    chapter("30000000001"), chapter("30000000002"), chapter("30000000003"),
+}, nil, 1000))
+equal(refreshed_import.current_index, 2, "first refresh follows imported chapter id")
+equal(refreshed_import.cover_url, "https://example.invalid/cover.jpg", "refresh preserves imported cover")
+
+local reloaded = Library.load(import_target, nil, nil, nil, 1100)
+local reloaded_import = assert(Library.find(reloaded, imported.id))
+equal(reloaded_import.imported_progress.position, 0.4, "reload preserves imported position")
+
 print("library tests passed")
