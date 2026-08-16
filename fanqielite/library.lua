@@ -1,0 +1,169 @@
+local Library = {}
+
+Library.VERSION = 1
+
+local function valid_id(value)
+    local id = tostring(value or "")
+    if id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return id end
+end
+
+local function clean_text(value, fallback)
+    local text = tostring(value or ""):match("^%s*(.-)%s*$")
+    if text == "" then return fallback or "" end
+    return text
+end
+
+local function normalize_chapters(chapters)
+    local output, seen = {}, {}
+    if type(chapters) ~= "table" then return output end
+    for _, chapter in ipairs(chapters) do
+        local id = type(chapter) == "table" and valid_id(chapter.id) or nil
+        if id and not seen[id] then
+            output[#output + 1] = {
+                id = id,
+                title = clean_text(chapter.title, "第 " .. tostring(#output + 1) .. " 章"),
+                index = tonumber(chapter.index) or (#output + 1),
+            }
+            seen[id] = true
+        end
+    end
+    return output
+end
+
+local function normalize_book(record, now)
+    if type(record) ~= "table" then return nil end
+    local source = type(record.book) == "table" and record.book or record
+    local id = valid_id(source.id)
+    if not id then return nil end
+    local chapters = normalize_chapters(record.chapters)
+    local current_index = math.floor(tonumber(record.current_index) or 1)
+    if current_index < 1 then current_index = 1 end
+    if #chapters > 0 and current_index > #chapters then current_index = #chapters end
+    return {
+        id = id,
+        title = clean_text(source.title, "番茄书籍 " .. id),
+        author = clean_text(source.author),
+        chapters = chapters,
+        current_index = current_index,
+        added_at = tonumber(record.added_at) or now,
+        updated_at = tonumber(record.updated_at) or now,
+        last_opened_at = tonumber(record.last_opened_at) or 0,
+    }
+end
+
+function Library.new()
+    return { version = Library.VERSION, sort = "recent", books = {} }
+end
+
+function Library.find(library, book_id)
+    if type(library) ~= "table" or type(library.books) ~= "table" then return nil end
+    book_id = tostring(book_id or "")
+    for index, book in ipairs(library.books) do
+        if book.id == book_id then return book, index end
+    end
+end
+
+function Library.load(saved, legacy_book, legacy_chapters, legacy_index, now)
+    now = tonumber(now) or os.time()
+    local library = Library.new()
+    local changed = type(saved) ~= "table" or saved.version ~= Library.VERSION
+    if type(saved) == "table" then
+        if saved.sort == "title" or saved.sort == "added" then library.sort = saved.sort end
+        if type(saved.books) == "table" then
+            local seen = {}
+            for _, record in ipairs(saved.books) do
+                local book = normalize_book(record, now)
+                if book and not seen[book.id] then
+                    library.books[#library.books + 1] = book
+                    seen[book.id] = true
+                else
+                    changed = true
+                end
+            end
+        end
+    end
+
+    local legacy_id = type(legacy_book) == "table" and valid_id(legacy_book.id) or nil
+    if legacy_id and not Library.find(library, legacy_id) then
+        local migrated = normalize_book({
+            book = legacy_book,
+            chapters = legacy_chapters,
+            current_index = legacy_index,
+            added_at = now,
+            updated_at = now,
+            last_opened_at = now,
+        }, now)
+        if migrated then library.books[#library.books + 1] = migrated end
+        changed = true
+    end
+    return library, changed
+end
+
+function Library.upsert(library, book, chapters, requested_index, now)
+    now = tonumber(now) or os.time()
+    local id = type(book) == "table" and valid_id(book.id) or nil
+    if not id then return nil, "书籍 ID 无效" end
+    local existing, existing_index = Library.find(library, id)
+    local normalized_chapters = normalize_chapters(chapters)
+    local current_index = tonumber(requested_index)
+    if not current_index and existing then
+        local current = existing.chapters[existing.current_index]
+        if current then
+            for index, chapter in ipairs(normalized_chapters) do
+                if chapter.id == current.id then current_index = index; break end
+            end
+        end
+        current_index = current_index or existing.current_index
+    end
+    local record = normalize_book({
+        book = book,
+        chapters = normalized_chapters,
+        current_index = current_index or 1,
+        added_at = existing and existing.added_at or now,
+        updated_at = now,
+        last_opened_at = existing and existing.last_opened_at or 0,
+    }, now)
+    if existing then
+        library.books[existing_index] = record
+    else
+        library.books[#library.books + 1] = record
+    end
+    return record
+end
+
+function Library.touch(library, book_id, chapter_index, now)
+    local book = Library.find(library, book_id)
+    if not book then return nil, "书籍不存在" end
+    chapter_index = math.floor(tonumber(chapter_index) or 0)
+    if chapter_index < 1 or not book.chapters[chapter_index] then return nil, "章节位置无效" end
+    book.current_index = chapter_index
+    book.last_opened_at = tonumber(now) or os.time()
+    return book
+end
+
+function Library.remove(library, book_id)
+    local _, index = Library.find(library, book_id)
+    if not index then return false end
+    table.remove(library.books, index)
+    return true
+end
+
+function Library.sorted(library)
+    local output = {}
+    for _, book in ipairs(library.books or {}) do output[#output + 1] = book end
+    local mode = library.sort or "recent"
+    table.sort(output, function(a, b)
+        if mode == "title" then
+            if a.title ~= b.title then return a.title < b.title end
+        elseif mode == "added" then
+            if a.added_at ~= b.added_at then return a.added_at > b.added_at end
+        else
+            if a.last_opened_at ~= b.last_opened_at then return a.last_opened_at > b.last_opened_at end
+            if a.updated_at ~= b.updated_at then return a.updated_at > b.updated_at end
+        end
+        return a.id < b.id
+    end)
+    return output
+end
+
+return Library

@@ -4,6 +4,11 @@ local lfs = require("libs/libkoreader-lfs")
 local Storage = {}
 Storage.__index = Storage
 
+function Storage.is_cache_name(name)
+    return type(name) == "string"
+        and (name:match("^%d+%.xhtml$") ~= nil or name:match("^%d+%.xhtml%.tmp$") ~= nil)
+end
+
 local function mkdir(path)
     local mode = lfs.attributes(path, "mode")
     if mode == "directory" then return true end
@@ -53,6 +58,33 @@ function Storage:prune(book_id, keep)
     end
     table.sort(files, function(a, b) return a.time > b.time end)
     for index = keep + 1, #files do os.remove(files[index].path) end
+end
+
+function Storage:cached_count(book_id)
+    book_id = tostring(book_id or "")
+    if not book_id:match("^%d+$") then return nil, "invalid book id" end
+    local path = self.root .. "/" .. book_id
+    if lfs.attributes(path, "mode") ~= "directory" then return 0 end
+    local count = 0
+    for name in lfs.dir(path) do
+        if name:match("^%d+%.xhtml$") then count = count + 1 end
+    end
+    return count
+end
+
+function Storage:clear_book(book_id)
+    book_id = tostring(book_id or "")
+    if not book_id:match("^%d+$") then return nil, "invalid book id" end
+    local path = self.root .. "/" .. book_id
+    if lfs.attributes(path, "mode") ~= "directory" then return 0 end
+    local removed = 0
+    for name in lfs.dir(path) do
+        if Storage.is_cache_name(name) then
+            if os.remove(path .. "/" .. name) then removed = removed + 1 end
+        end
+    end
+    lfs.rmdir(path)
+    return removed
 end
 
 return Storage
