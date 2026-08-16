@@ -1,10 +1,10 @@
-# Fanqie Lite for KOReader 0.1.0
+# Fanqie Lite for KOReader
 
 [![Lua 5.1 checks](https://github.com/garlicwjj/fanqielite.koplugin/actions/workflows/lua51.yml/badge.svg)](https://github.com/garlicwjj/fanqielite.koplugin/actions/workflows/lua51.yml)
 
 一个面向 KOReader 的番茄小说实验性插件。第一版只使用番茄小说官方网页，读取网页明确公开展示的章节。
 
-## 第一版范围
+## 0.1.0 范围
 
 - 输入官方书籍链接或书籍 ID。
 - 获取官方书籍信息和目录。
@@ -40,3 +40,9 @@
 - 章节缓存：`koreader/data/fanqielite/<book-id>/`
 
 删除插件不会自动删除缓存；如需清理，可在退出 KOReader 后删除上述 `fanqielite` 数据目录。
+
+## 下一版开发中
+
+当前开发分支正在把单书原型升级为多书本地书架，包括独立阅读进度、目录刷新、排序、移除书籍和按书清理缓存。旧版单书设置会自动迁移，并继续同步兼容字段以便降级。
+
+扫码导入与 JSON 文件导入目前只显示清晰的“开发中”说明，尚未接触或保存任何账号凭证。未经实机验证、安全审计和项目所有者明确确认，本项目不会标记为稳定版 1.0。

@@ -27,5 +27,8 @@ jobs:
       - name: Check Lua 5.1 syntax
         run: find . -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
-      - name: Run core tests
-        run: lua5.1 tests/test_core.lua
+      - name: Run tests
+        run: |
+          for test_file in tests/test_*.lua; do
+            lua5.1 "$test_file"
+          done
