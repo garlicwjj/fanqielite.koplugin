@@ -91,7 +91,8 @@ function Parser.book_from_state(state, fallback_id)
     local page = type(state) == "table" and state.page or nil
     if type(page) ~= "table" then return nil, "页面没有书籍信息" end
     local id = tostring(page.bookId or fallback_id or "")
-    if not id:match("^%d+$") then return nil, "书籍 ID 无效" end
+    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "书籍 ID 无效" end
+    if fallback_id and id ~= tostring(fallback_id) then return nil, "书籍 ID 与请求不一致" end
     return {
         id = id,
         title = trim(page.bookName) ~= "" and trim(page.bookName) or ("番茄书籍 " .. id),
@@ -102,7 +103,7 @@ end
 local function add_chapter(output, chapter, fallback_index)
     if type(chapter) ~= "table" then return end
     local id = tostring(chapter.itemId or chapter.item_id or "")
-    if not id:match("^%d+$") then return end
+    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return end
     output[#output + 1] = {
         id = id,
         title = trim(chapter.title) ~= "" and trim(chapter.title)
@@ -160,13 +161,20 @@ function Parser.chapter_from_state(state, expected_item_id)
     local chapter = type(reader) == "table" and reader.chapterData or nil
     if type(chapter) ~= "table" then return nil, "页面没有章节数据" end
     local item_id = tostring(chapter.itemId or "")
+    if not item_id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "章节 ID 无效" end
     if expected_item_id and item_id ~= tostring(expected_item_id) then
         return nil, "章节 ID 与请求不一致"
     end
-    if chapter.needPay == true or chapter.isChapterLock == true then
+    local function enabled(value)
+        return value == true or value == 1 or value == "1" or value == "true"
+    end
+    if enabled(chapter.needPay) or enabled(chapter.isChapterLock) then
         return nil, "该章节需要在番茄官方客户端中解锁"
     end
     local decoded, stats = Pua.decode(chapter.content or "")
+    if stats.invalid > 0 then
+        return nil, "官方正文包含无效 UTF-8，已拒绝保存异常章节"
+    end
     if stats.unknown > 0 then
         return nil, "番茄字符映射已经变化，已拒绝保存乱码章节"
     end
