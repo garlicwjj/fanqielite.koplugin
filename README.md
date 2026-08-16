@@ -48,3 +48,5 @@
 扫码导入目前仍只显示清晰的“开发中”说明，尚未接触或保存任何账号凭证。开发分支已加入严格的本地 JSON 书架导入验证，文件格式见 [`docs/bookshelf-format.md`](docs/bookshelf-format.md)；浏览器端导出工具仍在开发中。
 
 未经实机验证、安全审计和项目所有者明确确认，本项目不会标记为稳定版 1.0。
+
+稳定版候选的优先级、风险和证据门禁见 [`docs/QUALITY_PLAN.md`](docs/QUALITY_PLAN.md)，30 本/90 章节兼容测试方法见 [`docs/compatibility-matrix.md`](docs/compatibility-matrix.md)。
