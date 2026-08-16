@@ -29,6 +29,7 @@ jobs:
 
       - name: Run tests
         run: |
+          set -eu
           for test_file in tests/test_*.lua; do
             lua5.1 "$test_file"
           done
