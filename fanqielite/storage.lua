@@ -3,6 +3,34 @@ local lfs = require("libs/libkoreader-lfs")
 
 local Storage = {}
 Storage.__index = Storage
+Storage.MAX_CHAPTER_BYTES = 2 * 1024 * 1024
+local XHTML_PREFIX = '<?xml version="1.0" encoding="utf-8"?>'
+
+function Storage.validate_chapter_contents(contents)
+    if type(contents) ~= "string" or contents == "" then
+        return nil, "章节缓存为空"
+    end
+    if #contents > Storage.MAX_CHAPTER_BYTES then
+        return nil, "章节缓存过大"
+    end
+    if contents:sub(1, #XHTML_PREFIX) ~= XHTML_PREFIX then
+        return nil, "章节缓存格式无效"
+    end
+    for index = 1, #contents do
+        local byte = contents:byte(index)
+        if byte < 32 and byte ~= 9 and byte ~= 10 and byte ~= 13 then
+            return nil, "章节缓存包含非法控制字符"
+        end
+    end
+    if not contents:find('xmlns="http://www.w3.org/1999/xhtml"', 1, true)
+            or not contents:find("<body>", 1, true) then
+        return nil, "章节缓存格式无效"
+    end
+    if not contents:match("</body></html>%s*$") then
+        return nil, "章节缓存不完整"
+    end
+    return true
+end
 
 function Storage.is_cache_name(name)
     return type(name) == "string"
@@ -34,16 +62,48 @@ function Storage:chapter_path(book_id, item_id)
 end
 
 function Storage:write_chapter(book_id, item_id, contents)
+    local valid, validation_err = Storage.validate_chapter_contents(contents)
+    if not valid then return nil, validation_err end
     local path = self:chapter_path(book_id, item_id)
     local temporary = path .. ".tmp"
     local file, err = io.open(temporary, "wb")
-    if not file then return nil, err end
-    local ok, write_err = file:write(contents)
-    file:close()
-    if not ok then os.remove(temporary); return nil, write_err end
+    if not file then return nil, "无法创建临时缓存：" .. tostring(err) end
+    local write_call, ok, write_err = pcall(file.write, file, contents)
+    local close_call, closed, close_err = pcall(file.close, file)
+    if not write_call or not ok then
+        os.remove(temporary)
+        return nil, "写入缓存失败：" .. tostring(write_call and write_err or ok)
+    end
+    if not close_call or not closed then
+        os.remove(temporary)
+        return nil, "完成缓存写入失败：" .. tostring(close_call and close_err or closed)
+    end
     local renamed, rename_err = os.rename(temporary, path)
-    if not renamed then os.remove(temporary); return nil, rename_err end
+    if not renamed then
+        os.remove(temporary)
+        return nil, "无法替换章节缓存：" .. tostring(rename_err)
+    end
     self:prune(book_id, 12)
+    return path
+end
+
+function Storage:cached_chapter(book_id, item_id)
+    book_id, item_id = tostring(book_id or ""), tostring(item_id or "")
+    if not book_id:match("^%d+$") or not item_id:match("^%d+$") then
+        return nil, "缓存标识无效"
+    end
+    local path = self.root .. "/" .. book_id .. "/" .. item_id .. ".xhtml"
+    local mode = lfs.attributes(path, "mode")
+    if mode == nil then return nil end
+    if mode ~= "file" then return nil, "缓存路径不是普通文件" end
+    local file, open_err = io.open(path, "rb")
+    if not file then return nil, "无法读取缓存：" .. tostring(open_err) end
+    local contents, read_err = file:read(Storage.MAX_CHAPTER_BYTES + 1)
+    local closed, close_err = file:close()
+    if not contents then return nil, "无法读取缓存：" .. tostring(read_err) end
+    if not closed then return nil, "无法关闭缓存：" .. tostring(close_err) end
+    local valid, validation_err = Storage.validate_chapter_contents(contents)
+    if not valid then return nil, validation_err end
     return path
 end
 

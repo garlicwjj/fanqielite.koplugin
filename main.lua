@@ -361,17 +361,19 @@ function FanqieLite:open_chapter(book_id, index)
         return
     end
     local chapter = book.chapters[index]
-    local cached = self.storage:chapter_path(book.id, chapter.id)
-    local file = io.open(cached, "rb")
-    if file then
-        file:close()
+    local cached, cache_err = self.storage:cached_chapter(book.id, chapter.id)
+    if cached then
         Library.touch(self.library, book.id, index)
         self.active_book_id = book.id
         self:save_state()
         self:open_file(cached)
         return
     end
-    self:with_network("正在读取第 " .. tostring(index) .. " 章……", function()
+    local loading_label = "正在读取第 " .. tostring(index) .. " 章……"
+    if cache_err then
+        loading_label = "缓存损坏，已拒绝打开；书架和进度未改变。\n正在联网重新获取……"
+    end
+    self:with_network(loading_label, function()
         local html, fetch_err = Http.get(BASE .. "/reader/" .. chapter.id)
         if not html then error("读取章节失败：" .. tostring(fetch_err)) end
         local json_text, state_err = Parser.extract_initial_state(html)
@@ -383,7 +385,10 @@ function FanqieLite:open_chapter(book_id, index)
         parsed.title = chapter.title ~= "" and chapter.title or parsed.title
         local path, write_err = self.storage:write_chapter(
             book.id, chapter.id, Parser.to_xhtml(book, parsed))
-        if not path then error("保存章节失败：" .. tostring(write_err)) end
+        if not path then
+            error("保存章节失败：" .. tostring(write_err)
+                .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
+        end
         Library.touch(self.library, book.id, index)
         self.active_book_id = book.id
         self:save_state()
