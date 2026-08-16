@@ -9,13 +9,14 @@ local LuaSettings = require("luasettings")
 local Menu = require("ui/widget/menu")
 local NetworkMgr = require("ui/network/manager")
 local PathChooser = require("ui/widget/pathchooser")
+local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
-local Http = require("fanqielite.http")
 local Import = require("fanqielite.import")
 local Library = require("fanqielite.library")
+local NetworkTask = require("fanqielite.networktask")
 local Parser = require("fanqielite.parser")
 local Persistence = require("fanqielite.persistence")
 local Storage = require("fanqielite.storage")
@@ -127,13 +128,17 @@ function FanqieLite:save_state(force)
     return true
 end
 
-function FanqieLite:with_network(label, callback)
+function FanqieLite:with_network(callback)
     NetworkMgr:runWhenOnline(function()
-        local loading = InfoMessage:new{ text = label }
-        UIManager:show(loading)
-        UIManager:nextTick(function()
+        if self.network_busy then
+            self:info("已有网络操作正在进行，请先完成或点按取消。", 3)
+            return
+        end
+        self.network_busy = true
+        Trapper:wrap(function()
             local ok, err = pcall(callback)
-            UIManager:close(loading)
+            self.network_busy = false
+            Trapper:reset()
             if not ok then
                 local message = tostring(err):gsub("^.-:%d+:%s*", "")
                 self:info("操作未完成：\n" .. message)
@@ -143,7 +148,8 @@ function FanqieLite:with_network(label, callback)
 end
 
 function FanqieLite:fetch_book(book_id)
-    local html, page_err = Http.get(BASE .. "/page/" .. book_id)
+    local html, page_err = NetworkTask.get(
+        BASE .. "/page/" .. book_id, nil, "正在读取书籍信息……")
     if not html then error("获取书籍页面失败：" .. tostring(page_err)) end
     local json_text, state_err = Parser.extract_initial_state(html)
     if not json_text then error(state_err) end
@@ -152,8 +158,9 @@ function FanqieLite:fetch_book(book_id)
     local book, book_err = Parser.book_from_state(state, book_id)
     if not book then error(book_err) end
 
-    local directory_text, directory_err = Http.get(
-        BASE .. "/api/reader/directory/detail?bookId=" .. book_id, "application/json")
+    local directory_text, directory_err = NetworkTask.get(
+        BASE .. "/api/reader/directory/detail?bookId=" .. book_id,
+        "application/json", "正在读取目录……")
     if not directory_text then error("获取目录失败：" .. tostring(directory_err)) end
     local payload, payload_err = Parser.decode_json(directory_text)
     if not payload then error(payload_err) end
@@ -196,7 +203,7 @@ function FanqieLite:prompt_book()
             { text = _("添加"), is_enter_default = true, callback = function()
                 local value = dialog:getInputText()
                 UIManager:close(dialog)
-                self:with_network("正在读取官方书籍与目录……", function() self:load_book(value) end)
+                self:with_network(function() self:load_book(value) end)
             end },
         }},
     }
@@ -320,7 +327,7 @@ function FanqieLite:show_book(book_id)
     else
         items[#items + 1] = {
             text = _("联网获取目录并开始阅读"), callback = function()
-                self:with_network("正在读取官方书籍与目录……", function()
+                self:with_network(function()
                     self:refresh_book(book.id)
                     UIManager:nextTick(function() self:show_book(book.id) end)
                 end)
@@ -330,7 +337,7 @@ function FanqieLite:show_book(book_id)
     if #book.chapters > 0 then
         items[#items + 1] = {
             text = _("刷新书籍信息与目录"), callback = function()
-                self:with_network("正在刷新官方目录……", function() self:refresh_book(book.id) end)
+                self:with_network(function() self:refresh_book(book.id) end)
             end,
         }
     end
@@ -419,8 +426,9 @@ function FanqieLite:open_chapter(book_id, index)
     if cache_err then
         loading_label = "缓存损坏，已拒绝打开；书架和进度未改变。\n正在联网重新获取……"
     end
-    self:with_network(loading_label, function()
-        local html, fetch_err = Http.get(BASE .. "/reader/" .. chapter.id)
+    self:with_network(function()
+        local html, fetch_err = NetworkTask.get(
+            BASE .. "/reader/" .. chapter.id, nil, loading_label)
         if not html then error("读取章节失败：" .. tostring(fetch_err)) end
         local json_text, state_err = Parser.extract_initial_state(html)
         if not json_text then error(state_err) end
