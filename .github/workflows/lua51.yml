@@ -1,0 +1,31 @@
+name: Lua 5.1 checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes lua5.1
+
+      - name: Check Lua 5.1 syntax
+        run: find . -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+
+      - name: Run core tests
+        run: lua5.1 tests/test_core.lua
