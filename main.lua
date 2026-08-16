@@ -17,6 +17,7 @@ local Http = require("fanqielite.http")
 local Import = require("fanqielite.import")
 local Library = require("fanqielite.library")
 local Parser = require("fanqielite.parser")
+local Persistence = require("fanqielite.persistence")
 local Storage = require("fanqielite.storage")
 
 local FanqieLite = WidgetContainer:extend{
@@ -40,9 +41,16 @@ function FanqieLite:init()
         self.active_book_id = self.library.books[1] and self.library.books[1].id or nil
         changed = true
     end
-    if changed then self:save_state() end
+    self.persisted_settings = self:state_table()
+    if changed then
+        local saved, save_err = self:save_state(true)
+        if not saved then self.startup_save_error = save_err end
+    end
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
+    if self.startup_save_error then
+        UIManager:nextTick(function() self:info(self.startup_save_error) end)
+    end
 end
 
 function FanqieLite:onDispatcherRegisterActions()
@@ -70,25 +78,53 @@ function FanqieLite:active_book()
     return Library.find(self.library, self.active_book_id)
 end
 
-function FanqieLite:save_state()
-    self.settings:saveSetting("library", self.library)
-    self.settings:saveSetting("active_book_id", self.active_book_id)
-
+function FanqieLite:state_table()
+    local state = { library = Persistence.copy(self.library) }
+    if self.active_book_id then state.active_book_id = self.active_book_id end
     -- Keep the 0.1.0 fields in sync so downgrading does not lose the active book.
     local active = self:active_book()
     if active then
-        self.settings:saveSetting("book", {
+        state.book = {
             id = active.id, title = active.title, author = active.author,
-        })
-        self.settings:saveSetting("chapters", active.chapters)
-        self.settings:saveSetting("current_index", active.current_index)
-    else
-        self.settings:delSetting("book")
-        self.settings:delSetting("chapters")
-        self.settings:delSetting("current_index")
-        self.settings:delSetting("active_book_id")
+        }
+        state.chapters = Persistence.copy(active.chapters)
+        state.current_index = active.current_index
     end
-    self.settings:flush()
+    local import_path = self.settings:readSetting("import_path")
+    if type(import_path) == "string" and #import_path <= 1024
+            and not import_path:find("[%z\1-\31]") then
+        state.import_path = import_path
+    end
+    return state
+end
+
+function FanqieLite:restore_persisted_state()
+    self.settings.data = Persistence.copy(self.persisted_settings)
+    self.library = Library.load(
+        self.settings:readSetting("library"),
+        self.settings:readSetting("book"),
+        self.settings:readSetting("chapters"),
+        self.settings:readSetting("current_index"))
+    self.active_book_id = self.settings:readSetting("active_book_id")
+    if not Library.find(self.library, self.active_book_id) then
+        self.active_book_id = self.library.books[1] and self.library.books[1].id or nil
+    end
+end
+
+function FanqieLite:save_state(force)
+    local candidate = self:state_table()
+    if not force and Persistence.equal(candidate, self.persisted_settings) then return true end
+    local saved, save_err = Persistence.write(
+        self.settings.file, candidate, self.persisted_settings)
+    if not saved then
+        self:restore_persisted_state()
+        return nil, "无法安全保存插件设置：" .. tostring(save_err)
+            .. "\n\n本次书架或阅读进度变更已撤销，上一版设置仍被保留。"
+            .. "请检查 Kindle 剩余空间或只读状态后重试。"
+    end
+    self.persisted_settings = Persistence.copy(candidate)
+    self.settings.data = Persistence.copy(candidate)
+    return true
 end
 
 function FanqieLite:with_network(label, callback)
@@ -96,9 +132,12 @@ function FanqieLite:with_network(label, callback)
         local loading = InfoMessage:new{ text = label }
         UIManager:show(loading)
         UIManager:nextTick(function()
-            local ok, err = xpcall(callback, debug.traceback)
+            local ok, err = pcall(callback)
             UIManager:close(loading)
-            if not ok then self:info("操作失败：\n" .. tostring(err)) end
+            if not ok then
+                local message = tostring(err):gsub("^.-:%d+:%s*", "")
+                self:info("操作未完成：\n" .. message)
+            end
         end)
     end)
 end
@@ -130,7 +169,8 @@ function FanqieLite:load_book(input)
     local record, save_err = Library.upsert(self.library, book, chapters)
     if not record then error(save_err) end
     self.active_book_id = record.id
-    self:save_state()
+    local saved, state_err = self:save_state()
+    if not saved then error(state_err) end
     self:info("已加入《" .. record.title .. "》\n共 " .. tostring(#record.chapters) .. " 章", 3)
     UIManager:nextTick(function() self:show_book(record.id) end)
 end
@@ -140,7 +180,8 @@ function FanqieLite:refresh_book(book_id)
     local record, save_err = Library.upsert(self.library, book, chapters)
     if not record then error(save_err) end
     self.active_book_id = record.id
-    self:save_state()
+    local saved, state_err = self:save_state()
+    if not saved then error(state_err) end
     self:info("目录已刷新，共 " .. tostring(#record.chapters) .. " 章", 3)
 end
 
@@ -202,7 +243,8 @@ function FanqieLite:apply_file_import(path, books)
     local added, updated = Library.import_books(self.library, books)
     if not self.active_book_id and books[1] then self.active_book_id = books[1].id end
     self.settings:saveSetting("import_path", path:match("^(.*)/") or Device.home_dir)
-    self:save_state()
+    local saved, save_err = self:save_state()
+    if not saved then self:info(save_err); return end
     self:info("导入完成：新增 " .. tostring(added) .. " 本，更新 " .. tostring(updated)
         .. " 本。\n\n首次打开新书时需要联网获取目录。", 5)
     UIManager:nextTick(function() self:show_home() end)
@@ -211,7 +253,8 @@ end
 function FanqieLite:cycle_sort()
     local next_mode = { recent = "title", title = "added", added = "recent" }
     self.library.sort = next_mode[self.library.sort] or "recent"
-    self:save_state()
+    local saved, save_err = self:save_state()
+    if not saved then self:info(save_err); return end
     self:show_home()
 end
 
@@ -263,7 +306,8 @@ function FanqieLite:show_book(book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
     local cached_count = self.storage:cached_count(book.id) or 0
     self.active_book_id = book.id
-    self:save_state()
+    local saved, save_err = self:save_state()
+    if not saved then self:info(save_err); return end
     local items = {}
     if #book.chapters > 0 then
         items[#items + 1] = {
@@ -312,7 +356,8 @@ function FanqieLite:confirm_remove(book_id)
             if self.active_book_id == book_id then
                 self.active_book_id = self.library.books[1] and self.library.books[1].id or nil
             end
-            self:save_state()
+            local saved, save_err = self:save_state()
+            if not saved then self:info(save_err); return end
             self:info("已从本地书架移除", 2)
             UIManager:nextTick(function() self:show_home() end)
         end,
@@ -365,7 +410,8 @@ function FanqieLite:open_chapter(book_id, index)
     if cached then
         Library.touch(self.library, book.id, index)
         self.active_book_id = book.id
-        self:save_state()
+        local saved, save_err = self:save_state()
+        if not saved then self:info(save_err); return end
         self:open_file(cached)
         return
     end
@@ -391,7 +437,8 @@ function FanqieLite:open_chapter(book_id, index)
         end
         Library.touch(self.library, book.id, index)
         self.active_book_id = book.id
-        self:save_state()
+        local saved, save_err = self:save_state()
+        if not saved then error(save_err) end
         UIManager:nextTick(function() self:open_file(path) end)
     end)
 end
