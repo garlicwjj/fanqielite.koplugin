@@ -1,5 +1,7 @@
 # Fanqie Lite for KOReader 0.1.0
 
+[![Lua 5.1 checks](https://github.com/garlicwjj/fanqielite.koplugin/actions/workflows/lua51.yml/badge.svg)](https://github.com/garlicwjj/fanqielite.koplugin/actions/workflows/lua51.yml)
+
 一个面向 KOReader 的番茄小说实验性插件。第一版只使用番茄小说官方网页，读取网页明确公开展示的章节。
 
 ## 第一版范围
