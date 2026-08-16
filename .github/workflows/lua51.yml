@@ -38,3 +38,5 @@ jobs:
         run: |
           node --check tools/export-bookshelf.js
           node tests/test_export_bookshelf.js
+          node --check tools/compatibility-evidence.js
+          node tests/test_compatibility_evidence.js
