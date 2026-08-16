@@ -7,9 +7,10 @@ local function valid_id(value)
     if id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return id end
 end
 
-local function clean_text(value, fallback)
-    local text = tostring(value or ""):match("^%s*(.-)%s*$")
+local function clean_text(value, fallback, maximum)
+    local text = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
     if text == "" then return fallback or "" end
+    if maximum and #text > maximum then return fallback or "" end
     return text
 end
 
@@ -21,7 +22,7 @@ local function normalize_chapters(chapters)
         if id and not seen[id] then
             output[#output + 1] = {
                 id = id,
-                title = clean_text(chapter.title, "第 " .. tostring(#output + 1) .. " 章"),
+                title = clean_text(chapter.title, "第 " .. tostring(#output + 1) .. " 章", 300),
                 index = tonumber(chapter.index) or (#output + 1),
             }
             seen[id] = true
@@ -39,16 +40,31 @@ local function normalize_book(record, now)
     local current_index = math.floor(tonumber(record.current_index) or 1)
     if current_index < 1 then current_index = 1 end
     if #chapters > 0 and current_index > #chapters then current_index = #chapters end
-    return {
+    local output = {
         id = id,
-        title = clean_text(source.title, "番茄书籍 " .. id),
-        author = clean_text(source.author),
+        title = clean_text(source.title, "番茄书籍 " .. id, 300),
+        author = clean_text(source.author, nil, 150),
         chapters = chapters,
         current_index = current_index,
         added_at = tonumber(record.added_at) or now,
         updated_at = tonumber(record.updated_at) or now,
         last_opened_at = tonumber(record.last_opened_at) or 0,
     }
+    if type(record.cover_url) == "string" and record.cover_url:match("^https://") then
+        output.cover_url = record.cover_url
+    end
+    if type(record.imported_progress) == "table"
+            and valid_id(record.imported_progress.chapter_id) then
+        output.imported_progress = {
+            chapter_id = tostring(record.imported_progress.chapter_id),
+            chapter_title = clean_text(record.imported_progress.chapter_title, nil, 300),
+        }
+        local position = tonumber(record.imported_progress.position)
+        if position and position == position and position >= 0 and position <= 1 then
+            output.imported_progress.position = position
+        end
+    end
+    return output
 end
 
 function Library.new()
@@ -113,6 +129,14 @@ function Library.upsert(library, book, chapters, requested_index, now)
                 if chapter.id == current.id then current_index = index; break end
             end
         end
+        if not current_index and existing.imported_progress then
+            for index, chapter in ipairs(normalized_chapters) do
+                if chapter.id == existing.imported_progress.chapter_id then
+                    current_index = index
+                    break
+                end
+            end
+        end
         current_index = current_index or existing.current_index
     end
     local record = normalize_book({
@@ -122,6 +146,8 @@ function Library.upsert(library, book, chapters, requested_index, now)
         added_at = existing and existing.added_at or now,
         updated_at = now,
         last_opened_at = existing and existing.last_opened_at or 0,
+        cover_url = existing and existing.cover_url or nil,
+        imported_progress = existing and existing.imported_progress or nil,
     }, now)
     if existing then
         library.books[existing_index] = record
@@ -129,6 +155,34 @@ function Library.upsert(library, book, chapters, requested_index, now)
         library.books[#library.books + 1] = record
     end
     return record
+end
+
+function Library.import_books(library, imported_books, now)
+    now = tonumber(now) or os.time()
+    local added, updated = 0, 0
+    for _, imported in ipairs(imported_books or {}) do
+        local existing = Library.find(library, imported.id)
+        if existing then
+            existing.title = clean_text(imported.title, existing.title, 300)
+            existing.author = clean_text(imported.author, existing.author, 150)
+            existing.cover_url = imported.cover_url ~= "" and imported.cover_url or existing.cover_url
+            existing.imported_progress = imported.imported_progress or existing.imported_progress
+            existing.updated_at = now
+            updated = updated + 1
+        else
+            local record = normalize_book({
+                book = imported,
+                chapters = {},
+                current_index = 1,
+                added_at = now,
+                updated_at = now,
+                cover_url = imported.cover_url,
+                imported_progress = imported.imported_progress,
+            }, now)
+            if record then library.books[#library.books + 1] = record; added = added + 1 end
+        end
+    end
+    return added, updated
 end
 
 function Library.touch(library, book_id, chapter_index, now)

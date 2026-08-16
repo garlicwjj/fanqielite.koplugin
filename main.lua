@@ -1,5 +1,6 @@
 local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
+local Device = require("device")
 local Dispatcher = require("dispatcher")
 local FileManager = require("apps/filemanager/filemanager")
 local InfoMessage = require("ui/widget/infomessage")
@@ -7,11 +8,13 @@ local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local Menu = require("ui/widget/menu")
 local NetworkMgr = require("ui/network/manager")
+local PathChooser = require("ui/widget/pathchooser")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
 local Http = require("fanqielite.http")
+local Import = require("fanqielite.import")
 local Library = require("fanqielite.library")
 local Parser = require("fanqielite.parser")
 local Storage = require("fanqielite.storage")
@@ -164,6 +167,47 @@ function FanqieLite:unavailable(feature)
     self:info(feature .. "仍在安全开发中。\n\n它不会影响现有本地书架；功能通过审计和实机验证后才会开放。")
 end
 
+function FanqieLite:choose_import_file()
+    UIManager:show(PathChooser:new{
+        title = _("长按 fanqielite-bookshelf.json 选择导入"),
+        select_directory = false,
+        select_file = true,
+        path = self.settings:readSetting("import_path") or Device.home_dir or DataStorage:getDataDir(),
+        file_filter = function(filename) return filename == Import.FILENAME end,
+        onConfirm = function(path) self:prepare_file_import(path) end,
+    })
+end
+
+function FanqieLite:prepare_file_import(path)
+    local books, import_err = Import.read_file(path)
+    if not books then
+        self:info("导入失败：\n" .. tostring(import_err) .. "\n\n现有本地书架没有改变。")
+        return
+    end
+    local new_count, update_count = 0, 0
+    for _, book in ipairs(books) do
+        if Library.find(self.library, book.id) then update_count = update_count + 1
+        else new_count = new_count + 1 end
+    end
+    UIManager:show(ConfirmBox:new{
+        text = "文件格式验证通过，未发现 Cookie、Token、手机号等凭证字段。\n\n"
+            .. "新增 " .. tostring(new_count) .. " 本，更新 " .. tostring(update_count) .. " 本。\n"
+            .. "已有目录、缓存和本地阅读进度不会被覆盖。是否导入？",
+        ok_text = _("导入"),
+        ok_callback = function() self:apply_file_import(path, books) end,
+    })
+end
+
+function FanqieLite:apply_file_import(path, books)
+    local added, updated = Library.import_books(self.library, books)
+    if not self.active_book_id and books[1] then self.active_book_id = books[1].id end
+    self.settings:saveSetting("import_path", path:match("^(.*)/") or Device.home_dir)
+    self:save_state()
+    self:info("导入完成：新增 " .. tostring(added) .. " 本，更新 " .. tostring(updated)
+        .. " 本。\n\n首次打开新书时需要联网获取目录。", 5)
+    UIManager:nextTick(function() self:show_home() end)
+end
+
 function FanqieLite:cycle_sort()
     local next_mode = { recent = "title", title = "added", added = "recent" }
     self.library.sort = next_mode[self.library.sort] or "recent"
@@ -181,7 +225,7 @@ function FanqieLite:show_home()
         { text = _("搜索或添加一本书"), callback = function() self:prompt_book() end },
         {
             text = _("从文件导入书架"),
-            callback = function() self:unavailable("安全 JSON 导入") end,
+            callback = function() self:choose_import_file() end,
         },
     }
     if #self.library.books > 0 then
@@ -193,7 +237,8 @@ function FanqieLite:show_home()
             local book_id = book.id
             local author = book.author ~= "" and (" · " .. book.author) or ""
             local progress = #book.chapters > 0
-                and ("  [" .. tostring(book.current_index) .. "/" .. tostring(#book.chapters) .. "]") or ""
+                and ("  [" .. tostring(book.current_index) .. "/" .. tostring(#book.chapters) .. "]")
+                or "  [待获取目录]"
             items[#items + 1] = {
                 text = book.title .. author .. progress,
                 callback = function() self:show_book(book_id) end,
@@ -207,7 +252,7 @@ function FanqieLite:show_home()
     end
     items[#items + 1] = {
         text = _("隐私与使用边界"), callback = function()
-            self:info("只读取番茄官方网页公开内容。\n\n不保存账号、不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。每本书最多保留最近 12 个章节缓存。")
+            self:info("只读取番茄官方网页公开内容。\n\n不保存账号、不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。JSON 导入会先拒绝凭证字段和异常数据。每本书最多保留最近 12 个章节缓存。")
         end,
     }
     UIManager:show(Menu:new{ title = _("我的本地书架"), item_table = items, is_borderless = true })
@@ -219,25 +264,37 @@ function FanqieLite:show_book(book_id)
     local cached_count = self.storage:cached_count(book.id) or 0
     self.active_book_id = book.id
     self:save_state()
-    local items = {
-        {
+    local items = {}
+    if #book.chapters > 0 then
+        items[#items + 1] = {
             text = "继续阅读（第 " .. tostring(book.current_index) .. " 章）",
             callback = function() self:open_chapter(book.id, book.current_index) end,
-        },
-        { text = _("章节目录"), callback = function() self:show_catalog(book.id) end },
-        { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end },
-        { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end },
-        {
+        }
+        items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
+        items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
+        items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
+    else
+        items[#items + 1] = {
+            text = _("联网获取目录并开始阅读"), callback = function()
+                self:with_network("正在读取官方书籍与目录……", function()
+                    self:refresh_book(book.id)
+                    UIManager:nextTick(function() self:show_book(book.id) end)
+                end)
+            end,
+        }
+    end
+    if #book.chapters > 0 then
+        items[#items + 1] = {
             text = _("刷新书籍信息与目录"), callback = function()
                 self:with_network("正在刷新官方目录……", function() self:refresh_book(book.id) end)
             end,
-        },
-        {
+        }
+    end
+    items[#items + 1] = {
             text = "清理章节缓存（" .. tostring(cached_count) .. " 个）",
             callback = function() self:confirm_clear_cache(book.id) end,
-        },
-        { text = _("从本地书架移除"), callback = function() self:confirm_remove(book.id) end },
     }
+    items[#items + 1] = { text = _("从本地书架移除"), callback = function() self:confirm_remove(book.id) end }
     UIManager:show(Menu:new{
         title = book.title .. (book.author ~= "" and ("\n" .. book.author) or ""),
         item_table = items, is_borderless = true,
