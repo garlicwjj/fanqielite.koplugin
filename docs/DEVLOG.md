@@ -71,3 +71,9 @@
 章节缓存不能只凭文件存在就交给 KOReader 打开。插件现在会先检查大小、固定 XHTML 结构、完整结尾和 XML 非法控制字符；损坏缓存会被拒绝，并在不改变书架与阅读进度的前提下尝试联网重新获取。
 
 写入仍采用同目录临时文件和原子改名，同时开始检查 `write` 与 `close` 两个阶段。磁盘写满、只读或关闭文件失败时会删除未完成的临时文件，保留原有正式缓存，并提示用户检查空间或只读状态。
+
+## 设置写入完整性
+
+核对 [KOReader 2026.03 的 `LuaSettings`](https://github.com/koreader/koreader/blob/v2026.03/frontend/luasettings.lua) 与 [`util.writeToFile()`](https://github.com/koreader/koreader/blob/v2026.03/frontend/util.lua#L1141) 后确认，`LuaSettings:flush()` 不会把底层写入失败返回给调用方，而底层也未检查 `write()` 和 `close()` 的结果。插件不能用 `flush()` 的返回值证明书架或进度已经落盘。
+
+因此插件设置改为先生成临时 Lua 设置文件，调用 KOReader 的 `fsyncOpenedFile()`、关闭并重读校验后，再原子替换正式文件；每次替换前用同样流程保存上一版 `.old`。写入、同步、关闭、重读校验或改名任一步失败时，本次内存修改会回滚，界面会说明设置未保存及检查空间/只读状态。网络操作的用户提示也不再展示 Lua 调用栈。
