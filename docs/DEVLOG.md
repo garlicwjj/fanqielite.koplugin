@@ -77,3 +77,9 @@
 核对 [KOReader 2026.03 的 `LuaSettings`](https://github.com/koreader/koreader/blob/v2026.03/frontend/luasettings.lua) 与 [`util.writeToFile()`](https://github.com/koreader/koreader/blob/v2026.03/frontend/util.lua#L1141) 后确认，`LuaSettings:flush()` 不会把底层写入失败返回给调用方，而底层也未检查 `write()` 和 `close()` 的结果。插件不能用 `flush()` 的返回值证明书架或进度已经落盘。
 
 因此插件设置改为先生成临时 Lua 设置文件，调用 KOReader 的 `fsyncOpenedFile()`、关闭并重读校验后，再原子替换正式文件；每次替换前用同样流程保存上一版 `.old`。写入、同步、关闭、重读校验或改名任一步失败时，本次内存修改会回滚，界面会说明设置未保存及检查空间/只读状态。网络操作的用户提示也不再展示 Lua 调用栈。
+
+## 真正可取消的网络任务
+
+KOReader 2026.03 官方的 [`Trapper:dismissableRunInSubprocess()`](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/trapper.lua) 会让 UI 保持响应，并在用户点按取消时终止和回收子进程。插件只把无副作用的官方 HTTP GET 放进子进程；解析、书架修改、缓存写入和设置保存仍留在主进程，并且只在完整响应返回后发生。
+
+因此取消书籍信息、目录或章节请求时，不会留下临时下载、半份响应或内存里的书架修改。并发点击会被“已有网络操作”门禁拒绝。该机制仍需在 PW3 上验证点按响应、强制退出和 Wi-Fi 切换。
