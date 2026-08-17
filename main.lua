@@ -20,6 +20,7 @@ local Library = require("fanqielite.library")
 local NetworkTask = require("fanqielite.networktask")
 local Parser = require("fanqielite.parser")
 local Persistence = require("fanqielite.persistence")
+local Search = require("fanqielite.search")
 local Storage = require("fanqielite.storage")
 
 local FanqieLite = WidgetContainer:extend{
@@ -197,19 +198,61 @@ function FanqieLite:prompt_book()
     local dialog
     dialog = InputDialog:new{
         title = _("搜索或添加一本书"),
-        description = _("当前版本支持粘贴番茄官方书籍链接或书籍 ID。"),
-        input_hint = "https://fanqienovel.com/page/...",
+        description = _("输入书名或作者名搜索；也可以直接粘贴番茄官网书籍链接。"),
+        input_hint = _("书名、作者名或番茄官网链接"),
         buttons = {{
             { text = _("取消"), callback = function() UIManager:close(dialog) end },
-            { text = _("添加"), is_enter_default = true, callback = function()
+            { text = _("搜索/添加"), is_enter_default = true, callback = function()
                 local value = dialog:getInputText()
                 UIManager:close(dialog)
-                self:with_network(function() self:load_book(value) end)
+                self:submit_book_input(value)
             end },
         }},
     }
     UIManager:show(dialog)
     dialog:onShowKeyboard()
+end
+
+function FanqieLite:submit_book_input(value)
+    local book_id = Parser.book_id(value)
+    if book_id then
+        self:with_network(function() self:load_book(book_id) end)
+        return
+    end
+    local url, query_or_err = Search.build_url(value)
+    if not url then self:info(query_or_err); return end
+    self:with_network(function() self:search_books(url, query_or_err) end)
+end
+
+function FanqieLite:search_books(url, query)
+    local json_text, request_err = NetworkTask.get(
+        url, "application/json", "正在番茄官网搜索“" .. query .. "”……")
+    if not json_text then error("搜索未完成：" .. tostring(request_err)) end
+    local payload, decode_err = Parser.decode_json(json_text)
+    if not payload then error(decode_err) end
+    local results, results_err = Search.parse(payload)
+    if not results then error(results_err) end
+    UIManager:nextTick(function() self:show_search_results(query, results) end)
+end
+
+function FanqieLite:show_search_results(query, results)
+    local items = {}
+    for _, result in ipairs(results) do
+        local book_id = result.id
+        local existing = Library.find(self.library, book_id)
+        local author = result.author ~= "" and (" · " .. result.author) or ""
+        items[#items + 1] = {
+            text = result.title .. author .. (existing and "  [已在书架]" or ""),
+            callback = existing and function() self:show_book(book_id) end or function()
+                self:with_network(function() self:load_book(book_id) end)
+            end,
+        }
+    end
+    UIManager:show(Menu:new{
+        title = "搜索：“" .. query .. "”",
+        item_table = items,
+        is_borderless = true,
+    })
 end
 
 function FanqieLite:unavailable(feature)
