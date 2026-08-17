@@ -38,6 +38,17 @@ local function status_error(code)
     return "官方服务返回异常（HTTP " .. tostring(code or "未知") .. "）；本地数据未改变"
 end
 
+local function has_header(headers, expected)
+    if type(headers) ~= "table" then return false end
+    expected = expected:lower()
+    for name, value in pairs(headers) do
+        if tostring(name):lower() == expected and value ~= nil and tostring(value) ~= "" then
+            return true
+        end
+    end
+    return false
+end
+
 function Http.get(url, accept)
     if type(url) ~= "string" or not url:match("^https://fanqienovel%.com/") then
         return nil, "已拒绝访问非番茄官方 HTTPS 地址；本地数据未改变"
@@ -70,6 +81,15 @@ function Http.get(url, accept)
     if not called then return nil, request_error(ok) end
     if not ok then return nil, request_error(code or status) end
     if tonumber(code) ~= 200 then return nil, status_error(code) end
+    if has_header(headers, "bdturing-verify")
+            or has_header(headers, "x-vc-bdturing-parameters") then
+        return nil, "番茄官方安全验证需要在浏览器中完成，Kindle 无法显示该验证。"
+            .. "请稍后重试；添加书籍时也可以从番茄官网复制官方链接。"
+            .. "本地数据未改变"
+    end
+    if size == 0 then
+        return nil, "番茄官方服务返回空内容，可能正在限制访问；请稍后重试；本地数据未改变"
+    end
     local content_length = headers and tonumber(headers["content-length"] or headers["Content-Length"])
     if content_length and content_length ~= size then
         return nil, "官方响应传输不完整，已拒绝解析；本地数据未改变"
