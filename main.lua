@@ -354,7 +354,7 @@ function FanqieLite:show_settings()
             text = _("完全卸载与安全回退"), callback = function()
                 self:info("插件不会自动删除任何文件。完全卸载时请先退出 KOReader，再由电脑仅删除：\n\n"
                     .. "1. koreader/plugins/fanqielite.koplugin\n"
-                    .. "2. 可选：koreader/data/fanqielite\n"
+                    .. "2. 可选：koreader/fanqielite\n"
                     .. "3. 可选：koreader/settings/fanqielite.lua、fanqielite.lua.old、fanqielite.lua.tmp、fanqielite.lua.old.tmp\n"
                     .. "4. 可选：用户盘根目录的 fanqielite-bookshelf.json\n\n"
                     .. "第 1 项删除插件；其余项只删除插件数据和你主动导出的文件。不会影响 Kindle 系统、KOReader、书籍或其他插件。")

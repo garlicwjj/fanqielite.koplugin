@@ -39,7 +39,7 @@
 
 - 设置：`koreader/settings/fanqielite.lua`
 - 上一版设置备份：`koreader/settings/fanqielite.lua.old`（开发分支）
-- 章节缓存：`koreader/data/fanqielite/<book-id>/`
+- 章节缓存：`koreader/fanqielite/<book-id>/`
 
 删除插件不会自动删除缓存；如需清理，可在退出 KOReader 后删除上述 `fanqielite` 数据目录。
 
