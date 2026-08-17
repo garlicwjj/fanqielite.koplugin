@@ -8,6 +8,7 @@ local FileManager = require("apps/filemanager/filemanager")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
+local logger = require("logger")
 local Menu = require("ui/widget/menu")
 local NetworkMgr = require("ui/network/manager")
 local PathChooser = require("ui/widget/pathchooser")
@@ -269,7 +270,11 @@ function FanqieLite:choose_import_file()
         path = self.settings:readSetting("import_path") or Device.home_dir or DataStorage:getDataDir(),
         file_filter = function(filename) return filename == Import.FILENAME end,
         onConfirm = function(path)
-            UIManager:nextTick(function() self:prepare_file_import(path) end)
+            logger.info("[FanqieLite] import file selected; waiting for chooser input to finish")
+            UIManager:tickAfterNext(function()
+                logger.info("[FanqieLite] import validation started")
+                self:prepare_file_import(path)
+            end)
         end,
     })
 end
@@ -277,6 +282,7 @@ end
 function FanqieLite:prepare_file_import(path)
     local books, import_err = Import.read_file(path)
     if not books then
+        logger.info("[FanqieLite] import validation rejected")
         self:info("导入失败：\n" .. tostring(import_err) .. "\n\n现有本地书架没有改变。")
         return
     end
@@ -285,6 +291,7 @@ function FanqieLite:prepare_file_import(path)
         if Library.find(self.library, book.id) then update_count = update_count + 1
         else new_count = new_count + 1 end
     end
+    logger.info("[FanqieLite] import validation passed; showing confirmation")
     UIManager:show(ConfirmBox:new{
         text = "文件格式验证通过，未发现 Cookie、Token、手机号等凭证字段。\n\n"
             .. "新增 " .. tostring(new_count) .. " 本，更新 " .. tostring(update_count) .. " 本。\n"
