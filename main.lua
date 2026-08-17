@@ -268,7 +268,9 @@ function FanqieLite:choose_import_file()
         select_file = true,
         path = self.settings:readSetting("import_path") or Device.home_dir or DataStorage:getDataDir(),
         file_filter = function(filename) return filename == Import.FILENAME end,
-        onConfirm = function(path) self:prepare_file_import(path) end,
+        onConfirm = function(path)
+            UIManager:nextTick(function() self:prepare_file_import(path) end)
+        end,
     })
 end
 
