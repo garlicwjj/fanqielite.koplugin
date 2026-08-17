@@ -46,6 +46,26 @@ assert(body == "hello", "successful body mismatch")
 assert(timeout_calls[#timeout_calls].block == 10 and timeout_calls[#timeout_calls].total == 20)
 assert(reset_calls == 1, "timeout not reset after success")
 
+handler = function()
+    return 1, 200, {
+        ["content-length"] = "0",
+        ["Bdturing-Verify"] = "private-challenge-value",
+        ["x-ms-token"] = "private-response-token",
+    }, "OK"
+end
+local challenged, challenge_err = Http.get("https://fanqienovel.com/api/author/search/search_book/v1")
+assert(challenged == nil)
+contains(challenge_err, "官方安全验证", "verification challenge message")
+contains(challenge_err, "Kindle 无法显示", "verification action message")
+assert(not challenge_err:find("private%-challenge%-value"), "challenge value leaked into error")
+assert(not challenge_err:find("private%-response%-token"), "response token leaked into error")
+
+handler = function() return 1, 200, { ["content-length"] = "0" }, "OK" end
+local empty, empty_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(empty == nil)
+contains(empty_err, "返回空内容", "empty response message")
+contains(empty_err, "本地数据未改变", "empty response safety message")
+
 handler = function(request)
     local ok, err = request.sink(string.rep("x", 1024 * 1024 + 1))
     assert(ok == nil and err == "response too large")
@@ -106,6 +126,6 @@ handler = function() error("certificate verify failed") end
 local crashed, certificate_err = Http.get("https://fanqienovel.com/page/1234567890")
 assert(crashed == nil)
 contains(certificate_err, "证书验证失败", "certificate message")
-assert(reset_calls == 11, "timeout must reset after every attempted request")
+assert(reset_calls == 13, "timeout must reset after every attempted request")
 
 print("http tests passed")
