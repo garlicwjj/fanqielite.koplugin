@@ -14,6 +14,7 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
+local Export = require("fanqielite.export")
 local Import = require("fanqielite.import")
 local Library = require("fanqielite.library")
 local NetworkTask = require("fanqielite.networktask")
@@ -257,6 +258,69 @@ function FanqieLite:apply_file_import(path, books)
     UIManager:nextTick(function() self:show_home() end)
 end
 
+function FanqieLite:export_path()
+    local directory = Device.home_dir or DataStorage:getDataDir()
+    return directory:gsub("/+$", "") .. "/" .. Import.FILENAME
+end
+
+function FanqieLite:prepare_local_export()
+    if #self.library.books == 0 then
+        self:info("本地书架为空，没有可导出的书籍。")
+        return
+    end
+    local path = self:export_path()
+    local existing = io.open(path, "rb")
+    if existing then existing:close() end
+    UIManager:show(ConfirmBox:new{
+        text = "将 " .. tostring(#self.library.books) .. " 本书导出到 Kindle 用户盘根目录：\n\n"
+            .. Import.FILENAME .. "\n\n"
+            .. (existing and "同名文件已存在，确认后会安全替换。\n\n" or "")
+            .. "文件只含书名、作者、封面地址和章节进度，不含 Cookie、Token、手机号、正文或缓存。"
+            .. "连接电脑后可以读取此文件。是否继续？",
+        ok_text = existing and _("替换") or _("导出"),
+        ok_callback = function() self:write_local_export(path) end,
+    })
+end
+
+function FanqieLite:write_local_export(path)
+    local count, export_err = Export.write(path, self.library)
+    if not count then
+        self:info("导出失败：\n" .. tostring(export_err)
+            .. "\n\n原有书架和章节缓存没有改变。请检查剩余空间或只读状态后重试。")
+        return
+    end
+    self:info("已安全导出 " .. tostring(count) .. " 本书：\n\n" .. Import.FILENAME
+        .. "\n\n可以连接电脑备份，或复制到另一台安装 Fanqie Lite 的 Kindle。", 7)
+end
+
+function FanqieLite:show_settings()
+    local items = {
+        { text = _("从文件导入书架"), callback = function() self:choose_import_file() end },
+        { text = _("导出本地书架"), callback = function() self:prepare_local_export() end },
+        {
+            text = _("缓存管理说明"), callback = function()
+                self:info("每本书最多保留最近 12 个已打开章节。\n\n清理入口位于对应书籍页面；清理缓存不会删除书籍、目录或阅读进度。离线时只能打开仍有完整缓存的章节。")
+            end,
+        },
+        {
+            text = _("隐私与使用边界"), callback = function()
+                self:info("只读取番茄官方网页公开内容。\n\n不保存账号、不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。JSON 导入会拒绝凭证字段和异常数据；本地导出不含账号凭证、正文或缓存。")
+            end,
+        },
+        {
+            text = _("完全卸载与安全回退"), callback = function()
+                self:info("插件不会自动删除任何文件。完全卸载时请先退出 KOReader，再由电脑仅删除：\n\n"
+                    .. "1. koreader/plugins/fanqielite.koplugin\n"
+                    .. "2. 可选：koreader/data/fanqielite\n"
+                    .. "3. 可选：koreader/settings/fanqielite.lua、fanqielite.lua.old、fanqielite.lua.tmp、fanqielite.lua.old.tmp\n"
+                    .. "4. 可选：用户盘根目录的 fanqielite-bookshelf.json\n\n"
+                    .. "第 1 项删除插件；其余项只删除插件数据和你主动导出的文件。不会影响 Kindle 系统、KOReader、书籍或其他插件。")
+            end,
+        },
+    }
+    UIManager:show(Menu:new{ title = _("设置与数据"), item_table = items, is_borderless = true })
+end
+
 function FanqieLite:cycle_sort()
     local next_mode = { recent = "title", title = "added", added = "recent" }
     self.library.sort = next_mode[self.library.sort] or "recent"
@@ -300,11 +364,7 @@ function FanqieLite:show_home()
             callback = function() end,
         }
     end
-    items[#items + 1] = {
-        text = _("隐私与使用边界"), callback = function()
-            self:info("只读取番茄官方网页公开内容。\n\n不保存账号、不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。JSON 导入会先拒绝凭证字段和异常数据。每本书最多保留最近 12 个章节缓存。")
-        end,
-    }
+    items[#items + 1] = { text = _("设置与数据"), callback = function() self:show_settings() end }
     UIManager:show(Menu:new{ title = _("我的本地书架"), item_table = items, is_borderless = true })
 end
 
