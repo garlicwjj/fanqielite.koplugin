@@ -2,6 +2,8 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
 local Dispatcher = require("dispatcher")
+local DocSettings = require("docsettings")
+local Event = require("ui/event")
 local FileManager = require("apps/filemanager/filemanager")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
@@ -514,8 +516,24 @@ function FanqieLite:show_catalog(book_id)
     if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(book.current_index)) end
 end
 
-function FanqieLite:open_file(path)
-    FileManager.openFile(self.ui, path)
+function FanqieLite:open_file(path, imported_position)
+    local after_open_callback
+    if imported_position ~= nil then
+        after_open_callback = function(reader_ui)
+            reader_ui:handleEvent(Event:new("GotoPercent", imported_position * 100))
+        end
+    end
+    FileManager.openFile(self.ui, path, nil, nil, nil, after_open_callback)
+end
+
+function FanqieLite:prepare_chapter_open(book, index, path)
+    local imported_position = Library.take_imported_position(
+        book, index, DocSettings:hasSidecarFile(path))
+    Library.touch(self.library, book.id, index)
+    self.active_book_id = book.id
+    local saved, save_err = self:save_state()
+    if not saved then return nil, save_err end
+    return true, imported_position
 end
 
 function FanqieLite:open_chapter(book_id, index)
@@ -528,11 +546,9 @@ function FanqieLite:open_chapter(book_id, index)
     local chapter = book.chapters[index]
     local cached, cache_err = self.storage:cached_chapter(book.id, chapter.id)
     if cached then
-        Library.touch(self.library, book.id, index)
-        self.active_book_id = book.id
-        local saved, save_err = self:save_state()
-        if not saved then self:info(save_err); return end
-        self:open_file(cached)
+        local ready, position_or_err = self:prepare_chapter_open(book, index, cached)
+        if not ready then self:info(position_or_err); return end
+        self:open_file(cached, position_or_err)
         return
     end
     local loading_label = "正在读取第 " .. tostring(index) .. " 章……"
@@ -556,11 +572,9 @@ function FanqieLite:open_chapter(book_id, index)
             error("保存章节失败：" .. tostring(write_err)
                 .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
         end
-        Library.touch(self.library, book.id, index)
-        self.active_book_id = book.id
-        local saved, save_err = self:save_state()
-        if not saved then error(save_err) end
-        UIManager:nextTick(function() self:open_file(path) end)
+        local ready, position_or_err = self:prepare_chapter_open(book, index, path)
+        if not ready then error(position_or_err) end
+        UIManager:nextTick(function() self:open_file(path, position_or_err) end)
     end)
 end
 
