@@ -43,6 +43,18 @@ local function mkdir(path)
     return lfs.mkdir(path)
 end
 
+local function directory_entries(path)
+    local opened, iterator, state = pcall(lfs.dir, path)
+    if not opened then return nil, tostring(iterator) end
+    if type(iterator) ~= "function" then return nil, tostring(state or "无法打开目录") end
+    local entries = {}
+    local iterated, iterate_err = pcall(function()
+        for name in iterator, state do entries[#entries + 1] = name end
+    end)
+    if not iterated then return nil, tostring(iterate_err) end
+    return entries
+end
+
 function Storage:new()
     local root = DataStorage:getDataDir() .. "/fanqielite"
     mkdir(root)
@@ -110,7 +122,9 @@ end
 function Storage:prune(book_id, keep)
     local path = self:book_dir(book_id)
     local files = {}
-    for name in lfs.dir(path) do
+    local entries, entries_err = directory_entries(path)
+    if not entries then return nil, entries_err end
+    for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then
             local full = path .. "/" .. name
             files[#files + 1] = { path = full, time = lfs.attributes(full, "modification") or 0 }
@@ -118,15 +132,22 @@ function Storage:prune(book_id, keep)
     end
     table.sort(files, function(a, b) return a.time > b.time end)
     for index = keep + 1, #files do os.remove(files[index].path) end
+    return true
 end
 
 function Storage:cached_count(book_id)
     book_id = tostring(book_id or "")
     if not book_id:match("^%d+$") then return nil, "invalid book id" end
     local path = self.root .. "/" .. book_id
-    if lfs.attributes(path, "mode") ~= "directory" then return 0 end
+    local mode, attributes_err = lfs.attributes(path, "mode")
+    if mode ~= "directory" then
+        if attributes_err then return nil, "无法读取缓存目录：" .. tostring(attributes_err) end
+        return 0
+    end
+    local entries, entries_err = directory_entries(path)
+    if not entries then return nil, "无法列出缓存目录：" .. tostring(entries_err) end
     local count = 0
-    for name in lfs.dir(path) do
+    for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then count = count + 1 end
     end
     return count
@@ -136,14 +157,30 @@ function Storage:clear_book(book_id)
     book_id = tostring(book_id or "")
     if not book_id:match("^%d+$") then return nil, "invalid book id" end
     local path = self.root .. "/" .. book_id
-    if lfs.attributes(path, "mode") ~= "directory" then return 0 end
-    local removed = 0
-    for name in lfs.dir(path) do
+    local mode, attributes_err = lfs.attributes(path, "mode")
+    if mode ~= "directory" then
+        if attributes_err then return nil, "无法读取缓存目录：" .. tostring(attributes_err) end
+        return 0
+    end
+    local entries, entries_err = directory_entries(path)
+    if not entries then return nil, "无法列出缓存目录：" .. tostring(entries_err) end
+    local removed, failed, first_error = 0, 0, nil
+    for _, name in ipairs(entries) do
         if Storage.is_cache_name(name) then
-            if os.remove(path .. "/" .. name) then removed = removed + 1 end
+            local ok, remove_err = os.remove(path .. "/" .. name)
+            if ok then
+                removed = removed + 1
+            else
+                failed = failed + 1
+                first_error = first_error or tostring(remove_err or "未知删除错误")
+            end
         end
     end
-    lfs.rmdir(path)
+    if failed > 0 then
+        return removed, "已清理 " .. tostring(removed) .. " 个，但有 "
+            .. tostring(failed) .. " 个无法删除：" .. first_error
+    end
+    lfs.rmdir(path) -- May remain when an unowned file is present; never delete that file.
     return removed
 end
 

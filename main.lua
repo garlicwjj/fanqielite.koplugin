@@ -311,7 +311,8 @@ end
 function FanqieLite:show_book(book_id)
     local book = Library.find(self.library, book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
-    local cached_count = self.storage:cached_count(book.id) or 0
+    local cached_count = self.storage:cached_count(book.id)
+    local cache_status = cached_count and (tostring(cached_count) .. " 个") or "状态不可读"
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
     if not saved then self:info(save_err); return end
@@ -342,7 +343,7 @@ function FanqieLite:show_book(book_id)
         }
     end
     items[#items + 1] = {
-            text = "清理章节缓存（" .. tostring(cached_count) .. " 个）",
+            text = "清理章节缓存（" .. cache_status .. "）",
             callback = function() self:confirm_clear_cache(book.id) end,
     }
     items[#items + 1] = { text = _("从本地书架移除"), callback = function() self:confirm_remove(book.id) end }
@@ -379,7 +380,16 @@ function FanqieLite:confirm_clear_cache(book_id)
         ok_text = _("清理"),
         ok_callback = function()
             local count, err = self.storage:clear_book(book_id)
-            if not count then self:info("清理失败：" .. tostring(err)); return end
+            if not count then
+                self:info("清理失败：" .. tostring(err)
+                    .. "\n\n书架和阅读进度没有改变。请检查存储空间或只读状态后重试。")
+                return
+            end
+            if err then
+                self:info("缓存只完成了部分清理：\n" .. tostring(err)
+                    .. "\n\n未删除的缓存仍可继续使用；书架和阅读进度没有改变。")
+                return
+            end
             self:info("已清理 " .. tostring(count) .. " 个缓存文件", 3)
         end,
     })

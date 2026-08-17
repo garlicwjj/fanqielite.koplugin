@@ -2,6 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local removed, rmdir_path = {}, nil
 local cached_mode = nil
+local dir_error = nil
 local names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml.tmp", "notes.txt", "../escape.xhtml" }
 
 package.preload["datastorage"] = function()
@@ -19,6 +20,7 @@ package.preload["libs/libkoreader-lfs"] = function()
             end
         end,
         dir = function()
+            if dir_error then error(dir_error) end
             local index = 0
             return function()
                 index = index + 1
@@ -56,6 +58,25 @@ assert(rmdir_path == "/safe-data/fanqielite/7633875868615461950")
 
 local invalid = storage:clear_book("../../outside")
 assert(invalid == nil, "invalid book id accepted")
+
+names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml" }
+removed = {}
+os.remove = function(path)
+    removed[#removed + 1] = path
+    if path:match("10000000002%.xhtml$") then return nil, "read-only filesystem" end
+    return true
+end
+local partial_count, partial_err = storage:clear_book("7633875868615461950")
+os.remove = original_remove
+assert(partial_count == 1, "partial clear removed count is wrong")
+assert(partial_err and partial_err:find("1 个", 1, true), "partial clear count missing")
+assert(partial_err:find("read%-only filesystem"), "partial clear reason missing")
+
+dir_error = "permission denied while listing"
+local unreadable, unreadable_err = storage:clear_book("7633875868615461950")
+dir_error = nil
+assert(unreadable == nil, "unreadable cache directory reported as clear")
+assert(unreadable_err:find("permission denied", 1, true), "directory error detail missing")
 
 local valid_xhtml = '<?xml version="1.0" encoding="utf-8"?>\n'
     .. '<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN">'
