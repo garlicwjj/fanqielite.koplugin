@@ -166,7 +166,9 @@ function Library.import_books(library, imported_books, now)
             existing.title = clean_text(imported.title, existing.title, 300)
             existing.author = clean_text(imported.author, existing.author, 150)
             existing.cover_url = imported.cover_url ~= "" and imported.cover_url or existing.cover_url
-            existing.imported_progress = imported.imported_progress or existing.imported_progress
+            if #existing.chapters == 0 then
+                existing.imported_progress = imported.imported_progress or existing.imported_progress
+            end
             existing.updated_at = now
             updated = updated + 1
         else
@@ -193,6 +195,26 @@ function Library.touch(library, book_id, chapter_index, now)
     book.current_index = chapter_index
     book.last_opened_at = tonumber(now) or os.time()
     return book
+end
+
+function Library.take_imported_position(book, chapter_index, has_local_position)
+    if type(book) ~= "table" or type(book.chapters) ~= "table"
+            or type(book.imported_progress) ~= "table" then
+        return nil, false
+    end
+    chapter_index = math.floor(tonumber(chapter_index) or 0)
+    local chapter = book.chapters[chapter_index]
+    local imported = book.imported_progress
+    if type(chapter) ~= "table" or chapter.id ~= imported.chapter_id then
+        return nil, false
+    end
+    local position = tonumber(imported.position)
+    if not position or position ~= position or position < 0 or position > 1 then
+        return nil, false
+    end
+    book.imported_progress = nil
+    if has_local_position then return nil, true end
+    return position, true
 end
 
 function Library.remove(library, book_id)

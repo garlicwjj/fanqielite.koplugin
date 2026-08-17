@@ -100,6 +100,7 @@ equal(existing.title, "导入书名", "import updates title")
 equal(existing.author, "本地作者", "empty import author does not erase local author")
 equal(#existing.chapters, 2, "import preserves local directory")
 equal(existing.current_index, 2, "import preserves local progress")
+equal(existing.imported_progress, nil, "import must not attach remote progress to locally read book")
 
 local imported = assert(Library.find(import_target, "7334567890123456789"))
 equal(#imported.chapters, 0, "new import starts without fabricated directory")
@@ -115,5 +116,34 @@ equal(refreshed_import.cover_url, "https://example.invalid/cover.jpg", "refresh 
 local reloaded = Library.load(import_target, nil, nil, nil, 1100)
 local reloaded_import = assert(Library.find(reloaded, imported.id))
 equal(reloaded_import.imported_progress.position, 0.4, "reload preserves imported position")
+
+local wrong_position, wrong_consumed = Library.take_imported_position(reloaded_import, 1, false)
+equal(wrong_position, nil, "wrong chapter does not apply imported position")
+equal(wrong_consumed, false, "wrong chapter does not consume imported position")
+equal(reloaded_import.imported_progress.position, 0.4, "wrong chapter preserves imported position")
+
+local local_position, local_consumed = Library.take_imported_position(reloaded_import, 2, true)
+equal(local_position, nil, "existing KOReader sidecar wins over imported position")
+equal(local_consumed, true, "local sidecar discards stale imported position")
+equal(reloaded_import.imported_progress, nil, "discarded imported position cannot override later opens")
+
+local fresh_import = Library.new()
+Library.import_books(fresh_import, {
+    {
+        id = "7434567890123456789", title = "首次导入",
+        imported_progress = { chapter_id = "40000000002", chapter_title = "第二章", position = 0.6 },
+    },
+}, 1200)
+local fresh_book = assert(Library.find(fresh_import, "7434567890123456789"))
+fresh_book = assert(Library.upsert(fresh_import, {
+    id = fresh_book.id, title = fresh_book.title,
+}, { chapter("40000000001"), chapter("40000000002") }, nil, 1300))
+local fresh_position, fresh_consumed = Library.take_imported_position(fresh_book, 2, false)
+equal(fresh_position, 0.6, "first open applies validated imported position")
+equal(fresh_consumed, true, "first open consumes imported position")
+equal(fresh_book.imported_progress, nil, "imported position is one-shot")
+local repeated_position, repeated_consumed = Library.take_imported_position(fresh_book, 2, false)
+equal(repeated_position, nil, "later open does not reapply imported position")
+equal(repeated_consumed, false, "later open has nothing left to consume")
 
 print("library tests passed")
