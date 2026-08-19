@@ -3,6 +3,22 @@
 
 const fs = require("fs");
 const MAX_FILE_BYTES = 1024 * 1024;
+const REQUIRED_POSITIONS = ["first", "middle", "latest"];
+const BAND_QUOTAS = [
+    { key: "under_50", label: "少于 50 章", minimum: 5, matches: (count) => count < 50 },
+    { key: "from_50_to_200", label: "50–200 章", minimum: 5, matches: (count) => count >= 50 && count <= 200 },
+    { key: "from_201_to_500", label: "201–500 章", minimum: 8, matches: (count) => count >= 201 && count <= 500 },
+    { key: "from_501_to_1000", label: "501–1000 章", minimum: 7, matches: (count) => count >= 501 && count <= 1000 },
+    { key: "over_1000", label: "超过 1000 章", minimum: 5, matches: (count) => count > 1000 },
+];
+const REQUIRED_SAFETY_CASES = [
+    { key: "short_preview", label: "短预览" },
+    { key: "login_wall", label: "登录墙" },
+    { key: "locked", label: "锁定章节" },
+    { key: "malformed", label: "畸形响应" },
+    { key: "id_mismatch", label: "章节 ID 不一致" },
+    { key: "unknown_pua", label: "未知 PUA" },
+];
 
 const EXACT_KEYS = {
     root: ["format", "version", "tested_at", "environment", "book", "chapter", "observation"],
@@ -69,6 +85,7 @@ function validateRecord(record) {
     exactKeys(record.book, EXACT_KEYS.book, "book");
     string(record.book.id, "book.id", /^\d{10,30}$/);
     integer(record.book.chapter_count, "book.chapter_count");
+    if (record.book.chapter_count < 1) fail("book.chapter_count 必须大于 0");
     oneOf(record.book.serialization, "book.serialization", ["completed", "ongoing", "unknown"]);
     oneOf(record.book.category, "book.category", ["male", "female", "published", "other", "unknown"]);
 
@@ -79,7 +96,7 @@ function validateRecord(record) {
     exactKeys(record.observation, EXACT_KEYS.observation, "observation");
     oneOf(record.observation.response, "observation.response", [
         "public_full", "short_preview", "login_wall", "locked",
-        "rate_limited", "malformed", "other",
+        "rate_limited", "malformed", "id_mismatch", "other",
     ]);
     oneOf(record.observation.result, "observation.result", [
         "success", "safe_reject", "false_accept", "parse_failure",
@@ -134,13 +151,138 @@ function summarize(records) {
         if (record.observation.response === "public_full") {
             publicTotal += 1;
             if (record.observation.result === "success" && !record.observation.garbled) publicCorrect += 1;
-        } else if (["short_preview", "login_wall", "locked", "malformed"].includes(record.observation.response)) {
+        } else {
             protectedTotal += 1;
-            if (record.observation.result === "safe_reject" && !record.observation.cache_saved) protectedCorrect += 1;
+            if (record.observation.result === "safe_reject"
+                    && !record.observation.cache_saved
+                    && !record.observation.garbled
+                    && record.observation.actionable_error) {
+                protectedCorrect += 1;
+            }
         }
     }
 
     return { records: records.length, books: books.size, publicTotal, publicCorrect, protectedTotal, protectedCorrect };
+}
+
+function evaluateMatrix(records) {
+    const summary = summarize(records);
+    const errors = [];
+    const books = new Map();
+    const pluginCommits = new Set();
+    const bands = Object.fromEntries(BAND_QUOTAS.map((band) => [band.key, 0]));
+    const serialization = { completed: 0, ongoing: 0, unknown: 0 };
+    const category = { male: 0, female: 0, published: 0, other: 0, unknown: 0 };
+    const safetyCoverage = Object.fromEntries(REQUIRED_SAFETY_CASES.map((item) => [item.key, 0]));
+    let safeRejectTotal = 0;
+    let safeRejectCorrect = 0;
+    let hasRightsRestrictedScenario = false;
+
+    for (const record of records) {
+        pluginCommits.add(record.environment.plugin_commit);
+        let book = books.get(record.book.id);
+        if (!book) {
+            book = {
+                chapter_count: record.book.chapter_count,
+                serialization: record.book.serialization,
+                category: record.book.category,
+                positions: new Map(),
+                chapterIds: new Set(),
+                inconsistent: false,
+            };
+            books.set(record.book.id, book);
+        } else if (book.chapter_count !== record.book.chapter_count
+                || book.serialization !== record.book.serialization
+                || book.category !== record.book.category) {
+            book.inconsistent = true;
+        }
+
+        if (book.positions.has(record.chapter.position)) {
+            book.positions.set(record.chapter.position, null);
+        } else {
+            book.positions.set(record.chapter.position, record.chapter.id);
+        }
+        book.chapterIds.add(record.chapter.id);
+
+        const requiresSafeReject = record.observation.response !== "public_full"
+            || record.observation.unknown_pua > 0;
+        if (requiresSafeReject) {
+            safeRejectTotal += 1;
+            if (record.observation.result === "safe_reject"
+                    && !record.observation.cache_saved
+                    && !record.observation.garbled
+                    && record.observation.actionable_error) {
+                safeRejectCorrect += 1;
+            }
+        }
+        if (["login_wall", "locked"].includes(record.observation.response)) {
+            hasRightsRestrictedScenario = true;
+        }
+        if (Object.prototype.hasOwnProperty.call(safetyCoverage, record.observation.response)) {
+            safetyCoverage[record.observation.response] += 1;
+        }
+        if (record.observation.unknown_pua > 0) safetyCoverage.unknown_pua += 1;
+    }
+
+    for (const [bookId, book] of books) {
+        if (book.inconsistent) errors.push(`书籍 ${bookId} 的元数据不一致`);
+        if (book.chapter_count < 3) errors.push(`书籍 ${bookId} 少于 3 章，无法覆盖前、中、末场景`);
+        const hasEveryPosition = REQUIRED_POSITIONS.every((position) => book.positions.get(position));
+        if (book.positions.size !== REQUIRED_POSITIONS.length || !hasEveryPosition
+                || book.chapterIds.size !== REQUIRED_POSITIONS.length) {
+            errors.push(`书籍 ${bookId} 必须各有一个互不重复的前、中、末章节场景`);
+        }
+        const band = BAND_QUOTAS.find((candidate) => candidate.matches(book.chapter_count));
+        if (band) bands[band.key] += 1;
+        serialization[book.serialization] += 1;
+        category[book.category] += 1;
+    }
+
+    if (books.size < 30) errors.push(`至少需要 30 本书，当前 ${books.size} 本`);
+    if (summary.records < 90) errors.push(`至少需要 90 个章节场景，当前 ${summary.records} 个`);
+    for (const band of BAND_QUOTAS) {
+        if (bands[band.key] < band.minimum) {
+            errors.push(`${band.label}至少 ${band.minimum} 本，当前 ${bands[band.key]} 本`);
+        }
+    }
+    if (serialization.completed < 12) {
+        errors.push(`至少 12 本已完结，当前 ${serialization.completed} 本`);
+    }
+    if (serialization.ongoing < 18) {
+        errors.push(`至少 18 本连载中，当前 ${serialization.ongoing} 本`);
+    }
+    if (category.male < 1) errors.push("至少需要 1 本男频样本");
+    if (category.female < 1) errors.push("至少需要 1 本女频样本");
+    if (category.published < 1 && !hasRightsRestrictedScenario) {
+        errors.push("至少需要 1 本出版样本或版权受限场景");
+    }
+    if (pluginCommits.size !== 1) errors.push("完整矩阵必须使用同一个插件候选提交");
+    for (const safetyCase of REQUIRED_SAFETY_CASES) {
+        if (safetyCoverage[safetyCase.key] < 1) {
+            errors.push(`至少需要 1 个${safetyCase.label}安全场景`);
+        }
+    }
+    if (summary.publicTotal === 0 || summary.publicCorrect / summary.publicTotal < 0.95) {
+        errors.push(`公开正文正确解析率必须达到 95%，当前 ${percentage(summary.publicCorrect, summary.publicTotal)}`);
+    }
+    if (safeRejectCorrect !== safeRejectTotal) {
+        errors.push(`非公开或未知 PUA 场景必须全部安全拒绝，当前 ${safeRejectCorrect}/${safeRejectTotal}`);
+    }
+
+    return {
+        complete: errors.length === 0,
+        errors,
+        books: books.size,
+        scenarios: summary.records,
+        bands,
+        serialization,
+        category,
+        safetyCoverage,
+        publicTotal: summary.publicTotal,
+        publicCorrect: summary.publicCorrect,
+        safeRejectTotal,
+        safeRejectCorrect,
+    };
 }
 
 function percentage(correct, total) {
@@ -148,16 +290,31 @@ function percentage(correct, total) {
 }
 
 function main(argv) {
-    if (argv.length !== 1) fail("用法：node tools/compatibility-evidence.js <records.jsonl>");
-    if (fs.statSync(argv[0]).size > MAX_FILE_BYTES) fail("证据文件超过 1 MB 限制");
-    const records = parseJsonLines(fs.readFileSync(argv[0], "utf8"));
+    const requireComplete = argv[0] === "--require-complete";
+    const path = requireComplete ? argv[1] : argv[0];
+    if (!path || argv.length !== (requireComplete ? 2 : 1)) {
+        fail("用法：node tools/compatibility-evidence.js [--require-complete] <records.jsonl>");
+    }
+    if (fs.statSync(path).size > MAX_FILE_BYTES) fail("证据文件超过 1 MB 限制");
+    const records = parseJsonLines(fs.readFileSync(path, "utf8"));
     const summary = summarize(records);
+    const matrix = evaluateMatrix(records);
     process.stdout.write([
         `records=${summary.records}`,
         `books=${summary.books}`,
         `public_correct=${summary.publicCorrect}/${summary.publicTotal} (${percentage(summary.publicCorrect, summary.publicTotal)})`,
-        `protected_correct=${summary.protectedCorrect}/${summary.protectedTotal} (${percentage(summary.protectedCorrect, summary.protectedTotal)})`,
+        `non_public_safe_reject=${summary.protectedCorrect}/${summary.protectedTotal} (${percentage(summary.protectedCorrect, summary.protectedTotal)})`,
+        `safe_reject_correct=${matrix.safeRejectCorrect}/${matrix.safeRejectTotal} (${percentage(matrix.safeRejectCorrect, matrix.safeRejectTotal)})`,
+        `bands=${BAND_QUOTAS.map((band) => `${band.key}:${matrix.bands[band.key]}`).join(",")}`,
+        `serialization=completed:${matrix.serialization.completed},ongoing:${matrix.serialization.ongoing},unknown:${matrix.serialization.unknown}`,
+        `category=male:${matrix.category.male},female:${matrix.category.female},published:${matrix.category.published},other:${matrix.category.other},unknown:${matrix.category.unknown}`,
+        `safety_coverage=${REQUIRED_SAFETY_CASES.map((item) => `${item.key}:${matrix.safetyCoverage[item.key]}`).join(",")}`,
+        `matrix_complete=${matrix.complete ? "yes" : "no"}`,
+        `matrix_errors=${matrix.errors.length}`,
     ].join("\n") + "\n");
+    if (requireComplete && !matrix.complete) {
+        fail(`完整矩阵门禁未通过：\n- ${matrix.errors.join("\n- ")}`);
+    }
 }
 
 if (require.main === module) {
@@ -169,4 +326,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { parseJsonLines, summarize, validateRecord };
+module.exports = { evaluateMatrix, parseJsonLines, summarize, validateRecord };
