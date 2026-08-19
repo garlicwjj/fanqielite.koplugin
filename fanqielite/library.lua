@@ -37,6 +37,10 @@ local function normalize_book(record, now)
     local id = valid_id(source.id)
     if not id then return nil end
     local chapters = normalize_chapters(record.chapters)
+    local directory_updated_at = tonumber(record.directory_updated_at) or 0
+    if directory_updated_at ~= directory_updated_at or directory_updated_at < 0 then
+        directory_updated_at = 0
+    end
     local current_index = math.floor(tonumber(record.current_index) or 1)
     if current_index < 1 then current_index = 1 end
     if #chapters > 0 and current_index > #chapters then current_index = #chapters end
@@ -48,6 +52,7 @@ local function normalize_book(record, now)
         current_index = current_index,
         added_at = tonumber(record.added_at) or now,
         updated_at = tonumber(record.updated_at) or now,
+        directory_updated_at = directory_updated_at,
         last_opened_at = tonumber(record.last_opened_at) or 0,
     }
     if type(record.cover_url) == "string" and record.cover_url:match("^https://") then
@@ -145,6 +150,7 @@ function Library.upsert(library, book, chapters, requested_index, now)
         current_index = current_index or 1,
         added_at = existing and existing.added_at or now,
         updated_at = now,
+        directory_updated_at = now,
         last_opened_at = existing and existing.last_opened_at or 0,
         cover_url = existing and existing.cover_url or nil,
         imported_progress = existing and existing.imported_progress or nil,

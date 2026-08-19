@@ -99,4 +99,29 @@ assert(not failed:find("test_network_flow.lua", 1, true), "failure leaked a Lua 
 assert(plugin.network_busy == false, "network gate remained active after failure")
 assert(reset_calls == 4, "Trapper was not reset after every completed wrapper")
 
+local no_directory = plugin:book_local_status({ chapters = {} }, 0, 1000)
+assert(no_directory:find("尚未获取目录", 1, true), "missing directory state not explained")
+assert(no_directory:find("首次阅读需要联网", 1, true), "first online requirement missing")
+
+local local_status = plugin:book_local_status({
+    chapters = { {}, {} }, directory_updated_at = 500,
+}, 1, 1000)
+assert(local_status:find("目录 2 章", 1, true), "directory count missing")
+assert(local_status:find("缓存文件 1 个", 1, true), "cache count missing")
+assert(local_status:find("离线仅能打开完整缓存", 1, true), "offline boundary missing")
+assert(not local_status:find("未知", 1, true), "valid directory time reported as unknown")
+
+local unreadable_cache = plugin:book_local_status({
+    chapters = { {} }, directory_updated_at = 500,
+}, nil, 1000)
+assert(unreadable_cache:find("缓存状态不可读", 1, true), "unreadable cache state hidden")
+
+local unknown_time = plugin:book_local_status({ chapters = { {} } }, 0, 1000)
+assert(unknown_time:find("下次联网刷新后记录", 1, true), "legacy timestamp fallback missing")
+
+local future_time = plugin:book_local_status({
+    chapters = { {} }, directory_updated_at = 90000,
+}, 0, 1000)
+assert(future_time:find("设备时间异常", 1, true), "future device timestamp not rejected")
+
 print("network flow tests passed")
