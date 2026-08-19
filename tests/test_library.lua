@@ -24,6 +24,7 @@ equal(#library.books, 1, "legacy book count")
 equal(library.books[1].title, "旧版书籍", "legacy title")
 equal(library.books[1].current_index, 2, "legacy progress")
 equal(#library.books[1].chapters, 2, "legacy chapters")
+equal(library.books[1].directory_updated_at, 0, "legacy directory time stays unknown")
 
 local same, changed = Library.load(library, legacy_book, legacy_chapters, 1, 200)
 equal(changed, false, "migration is idempotent")
@@ -35,6 +36,7 @@ local second = assert(Library.upsert(same, {
 }, { chapter("20000000001"), chapter("20000000002") }, nil, 300))
 equal(#same.books, 2, "second book retained")
 equal(second.current_index, 1, "new book starts at first chapter")
+equal(second.directory_updated_at, 300, "new directory refresh time recorded")
 
 assert(Library.touch(same, second.id, 2, 400))
 equal(second.current_index, 2, "per-book progress updated")
@@ -50,6 +52,7 @@ local refreshed = assert(Library.upsert(same, {
 equal(#same.books, 2, "refresh does not duplicate")
 equal(refreshed.current_index, 3, "refresh follows current chapter id")
 equal(refreshed.title, "新书（改名）", "refreshes metadata")
+equal(refreshed.directory_updated_at, 500, "directory refresh time updated")
 
 same.sort = "recent"
 equal(Library.sorted(same)[1].id, second.id, "recent sort")
@@ -101,9 +104,11 @@ equal(existing.author, "本地作者", "empty import author does not erase local
 equal(#existing.chapters, 2, "import preserves local directory")
 equal(existing.current_index, 2, "import preserves local progress")
 equal(existing.imported_progress, nil, "import must not attach remote progress to locally read book")
+equal(existing.directory_updated_at, 800, "metadata import preserves directory refresh time")
 
 local imported = assert(Library.find(import_target, "7334567890123456789"))
 equal(#imported.chapters, 0, "new import starts without fabricated directory")
+equal(imported.directory_updated_at, 0, "new import has no fabricated directory refresh time")
 equal(imported.imported_progress.chapter_id, "30000000002", "imported chapter retained")
 local refreshed_import = assert(Library.upsert(import_target, {
     id = imported.id, title = imported.title, author = imported.author,
@@ -112,9 +117,11 @@ local refreshed_import = assert(Library.upsert(import_target, {
 }, nil, 1000))
 equal(refreshed_import.current_index, 2, "first refresh follows imported chapter id")
 equal(refreshed_import.cover_url, "https://example.invalid/cover.jpg", "refresh preserves imported cover")
+equal(refreshed_import.directory_updated_at, 1000, "first directory fetch records refresh time")
 
 local reloaded = Library.load(import_target, nil, nil, nil, 1100)
 local reloaded_import = assert(Library.find(reloaded, imported.id))
+equal(reloaded_import.directory_updated_at, 1000, "directory refresh time survives reload")
 equal(reloaded_import.imported_progress.position, 0.4, "reload preserves imported position")
 
 local wrong_position, wrong_consumed = Library.take_imported_position(reloaded_import, 1, false)

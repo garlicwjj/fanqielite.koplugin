@@ -80,6 +80,31 @@ function FanqieLite:info(text, timeout)
     UIManager:show(InfoMessage:new{ text = text, timeout = timeout })
 end
 
+function FanqieLite:book_local_status(book, cached_count, now)
+    local chapter_count = type(book.chapters) == "table" and #book.chapters or 0
+    local cache_text = cached_count == nil
+        and "缓存状态不可读"
+        or ("缓存文件 " .. tostring(cached_count) .. " 个")
+    if chapter_count == 0 then
+        return "本地状态：尚未获取目录；" .. cache_text
+            .. "\n首次阅读需要联网。"
+    end
+
+    now = tonumber(now) or os.time()
+    local timestamp = tonumber(book.directory_updated_at)
+    local refreshed = "未知（下次联网刷新后记录）"
+    if timestamp and timestamp == timestamp and timestamp > 0 then
+        if now == now and timestamp > now + 86400 then
+            refreshed = "设备时间异常，请校准后刷新"
+        else
+            local ok, formatted = pcall(os.date, "%Y-%m-%d %H:%M", timestamp)
+            if ok and type(formatted) == "string" and formatted ~= "" then refreshed = formatted end
+        end
+    end
+    return "本地状态：目录 " .. tostring(chapter_count) .. " 章；" .. cache_text
+        .. "\n目录更新：" .. refreshed .. "；离线仅能打开完整缓存。"
+end
+
 function FanqieLite:active_book()
     return Library.find(self.library, self.active_book_id)
 end
@@ -430,7 +455,10 @@ function FanqieLite:show_book(book_id)
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
     if not saved then self:info(save_err); return end
-    local items = {}
+    local items = {{
+        text = self:book_local_status(book, cached_count),
+        callback = function() end,
+    }}
     if #book.chapters > 0 then
         items[#items + 1] = {
             text = "继续阅读（第 " .. tostring(book.current_index) .. " 章）",
