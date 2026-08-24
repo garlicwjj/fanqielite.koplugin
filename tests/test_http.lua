@@ -1,10 +1,48 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local handler
+local http_stub = {}
 local timeout_calls, reset_calls = {}, 0
+local certificate_names = { "fanqienovel.com" }
+local certificate_mode = "valid"
+local tls_config, closed_tls_connections = nil, 0
 
 package.preload["ssl.https"] = function()
-    return { request = function(request) return handler(request) end }
+    return { tcp = function(config)
+        tls_config = config
+        return function()
+            local connection = {}
+            function connection:connect(host, port)
+                assert(host == "fanqienovel.com" and port == 443, "unexpected TLS destination")
+                return 1
+            end
+            function connection:getpeercertificate()
+                if certificate_mode == "missing" then return nil end
+                return { extensions = function()
+                    if certificate_mode == "extensions_error" then error("malformed certificate") end
+                    if certificate_mode == "no_san" then return {} end
+                    return { subject_alt_name = { dNSName = certificate_names } }
+                end }
+            end
+            function connection:close()
+                closed_tls_connections = closed_tls_connections + 1
+                return 1
+            end
+            return connection
+        end
+    end }
+end
+package.preload["socket.http"] = function()
+    http_stub.request = function(request)
+        local connection = request.create()
+        local connected, connect_err = connection:connect("fanqienovel.com", 443)
+        if not connected then return nil, connect_err end
+        return handler(request)
+    end
+    return http_stub
+end
+package.preload["datastorage"] = function()
+    return { getDataDir = function() return "/mock/koreader" end }
 end
 package.preload["socketutil"] = function()
     return {
@@ -37,6 +75,13 @@ handler = function(request)
     assert(request.redirect == false, "redirects must be disabled")
     assert(request.method == "GET")
     assert(request.headers["Connection"] == "close")
+    assert(tls_config.verify == "peer", "certificate chain verification not enabled")
+    assert(tls_config.cafile == "/mock/koreader/data/ca-bundle.crt", "KOReader CA bundle not used")
+    assert(type(tls_config.options) == "table", "TLS protocol restrictions missing")
+    local options = {}
+    for _, option in ipairs(tls_config.options) do options[option] = true end
+    assert(options.no_sslv2 and options.no_sslv3 and options.no_tlsv1 and options.no_tlsv1_1,
+        "obsolete TLS protocols not disabled")
     assert(request.sink("hello") == 1)
     assert(request.sink(nil) == 1)
     return 1, 200, { ["content-length"] = "5" }, "OK"
@@ -45,6 +90,49 @@ local body = assert(Http.get("https://fanqienovel.com/page/1234567890"))
 assert(body == "hello", "successful body mismatch")
 assert(timeout_calls[#timeout_calls].block == 10 and timeout_calls[#timeout_calls].total == 20)
 assert(reset_calls == 1, "timeout not reset after success")
+
+http_stub.PROXY = "http://proxy.invalid:8080"
+handler = function() error("request continued through HTTP proxy") end
+local proxied, proxy_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(proxied == nil)
+contains(proxy_err, "HTTP 代理", "proxy rejection message")
+http_stub.PROXY = nil
+
+certificate_names = { "evil.example" }
+handler = function() error("request continued after hostname mismatch") end
+local mismatch, mismatch_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(mismatch == nil)
+contains(mismatch_err, "证书验证失败", "hostname mismatch message")
+assert(closed_tls_connections == 1, "hostname mismatch did not close TLS connection")
+
+certificate_mode = "no_san"
+certificate_names = { "fanqienovel.com" }
+local no_san, no_san_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(no_san == nil)
+contains(no_san_err, "证书验证失败", "missing SAN message")
+assert(closed_tls_connections == 2, "missing SAN did not close TLS connection")
+
+certificate_mode = "valid"
+certificate_names = { "*.fanqienovel.com" }
+local apex_wildcard, apex_wildcard_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(apex_wildcard == nil)
+contains(apex_wildcard_err, "证书验证失败", "wildcard apex mismatch message")
+assert(closed_tls_connections == 3, "wildcard apex mismatch did not close TLS connection")
+
+certificate_mode = "missing"
+local missing_certificate, missing_certificate_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(missing_certificate == nil)
+contains(missing_certificate_err, "证书验证失败", "missing certificate message")
+assert(closed_tls_connections == 4, "missing certificate did not close TLS connection")
+
+certificate_mode = "extensions_error"
+local malformed_certificate, malformed_certificate_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(malformed_certificate == nil)
+contains(malformed_certificate_err, "证书验证失败", "malformed certificate message")
+assert(closed_tls_connections == 5, "malformed certificate did not close TLS connection")
+
+certificate_mode = "valid"
+certificate_names = { "fanqienovel.com" }
 
 handler = function()
     return 1, 200, {
@@ -126,6 +214,6 @@ handler = function() error("certificate verify failed") end
 local crashed, certificate_err = Http.get("https://fanqienovel.com/page/1234567890")
 assert(crashed == nil)
 contains(certificate_err, "证书验证失败", "certificate message")
-assert(reset_calls == 13, "timeout must reset after every attempted request")
+assert(reset_calls == 18, "timeout must reset after every attempted request")
 
 print("http tests passed")
