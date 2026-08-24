@@ -44,6 +44,7 @@ fanqielite.koplugin/docs/bookshelf-format.md
 fanqielite.koplugin/docs/compatibility-matrix.md
 fanqielite.koplugin/fanqielite/
 fanqielite.koplugin/fanqielite/export.lua
+fanqielite.koplugin/fanqielite/ephemeral_session.lua
 fanqielite.koplugin/fanqielite/http.lua
 fanqielite.koplugin/fanqielite/import.lua
 fanqielite.koplugin/fanqielite/library.lua
