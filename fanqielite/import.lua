@@ -91,9 +91,10 @@ end
 
 function Import.decode(contents)
     local rapidjson = require("rapidjson")
-    local ok, value, err = pcall(rapidjson.decode, contents)
-    if not ok then return nil, "JSON 解析失败：" .. tostring(value) end
-    if value == nil then return nil, "JSON 解析失败：" .. tostring(err or "格式错误") end
+    local ok, value = pcall(rapidjson.decode, contents)
+    if not ok or value == nil then
+        return nil, "书架 JSON 解析失败；未显示文件内容，现有本地书架没有改变"
+    end
     return value
 end
 

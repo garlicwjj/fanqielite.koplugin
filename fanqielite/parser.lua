@@ -91,9 +91,11 @@ end
 
 function Parser.decode_json(text)
     local rapidjson = require("rapidjson")
-    local ok, value, err = pcall(rapidjson.decode, text)
-    if not ok then return nil, "JSON 解析失败：" .. tostring(value) end
-    if value == nil then return nil, err or "JSON 解析失败" end
+    local ok, value = pcall(rapidjson.decode, text)
+    if not ok or value == nil then
+        return nil, "番茄官方响应格式发生变化，JSON 解析失败；"
+            .. "请稍后重试或更新插件，本地数据未改变"
+    end
     return value
 end
 
