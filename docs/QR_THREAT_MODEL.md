@@ -62,6 +62,12 @@ Lua 字符串不可原地覆写，垃圾回收也不等于密码学意义的内�
 
 当前 `ephemeral_session.lua` 只实现端点无关的纯 Lua 生命周期核心：单实例运行代号、固定五分钟总时限、二维码过期、取消、固定失败、退出失败、迟到结果隔离、严格书架验证和提交失败重试。真实网络只能以后通过经审计的回调接入；该模块不生成二维码、不解析 Cookie、不调用 Passport、不修改本地书架，也不证明强制杀死整个 KOReader 进程时能执行 Lua 清理代码。合成 canary 只能证明正常调用这些终止路径后，模块对象不再持有凭证引用。
 
+### KOReader 2026.03 内存二维码源码审计
+
+目标版本 `v2026.03` 固定到 KOReader 提交 [`825b9bc`](https://github.com/koreader/koreader/commit/825b9bced0eb666b45af4208e1c0095b88d38b0d)，其 `koreader-base` 子模块为 [`7a46ea3`](https://github.com/koreader/koreader-base/tree/7a46ea3812539083ee25b06f0c81ac58b1356ee0)。官方 [`QRMessage`](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/widget/qrmessage.lua) 把文本交给 [`QRWidget`](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/widget/qrwidget.lua)；后者调用纯 Lua [`ffi/qrencode.lua`](https://github.com/koreader/koreader-base/blob/7a46ea3812539083ee25b06f0c81ac58b1356ee0/ffi/qrencode.lua) 生成矩阵，再直接创建 `BlitBuffer` 交给 `ImageWidget.image`。按这些源码推断，该路径不需要二维码图片文件；`ImageWidget` 对已有 `image` 走内存加载，并在释放时回收可处置的 `BlitBuffer`。
+
+审计同时发现 `QRWidget` 会静默截断超过 2953 字节的文本，授权二维码不能接受这种行为。`qrdisplay.lua` 因此在构造控件前拒绝空值、控制字符、超过 2048 字节的载荷和超过五分钟的显示时间；关闭成功后删除文本和回调引用，关闭异常则保留可重试句柄并明确报告未关闭。该结论目前只证明源码路径与合成适配行为，不证明 PW3 上二维码一定可扫码、不产生其他 KOReader 运行痕迹，或强制退出时 `free()` 必然执行。
+
 ## 网络与响应要求
 
 - 只访问现场审计确认的番茄官方 HTTPS 域名；域名、路径、方法和用途逐项白名单。
@@ -99,7 +105,7 @@ Lua 字符串不可原地覆写，垃圾回收也不等于密码学意义的内�
 | 强制退出或进程崩溃 | 无法调用官方退出 | 绝不落盘；要求会话短时失效，并用测试账号验证远端状态 |
 | 官方退出失败 | 远端会话可能仍有效 | 本地无条件清除；明确告知用户，安全不依赖退出成功 |
 | 重复点击开始/确认 | 并行会话或重复导入 | 单实例状态机、忙碌门禁、提交操作幂等 |
-| QR 图片写入临时文件 | USB 可恢复凭证图像 | 优先内存绘制；若 KOReader 无安全内存路径则暂停实现 |
+| QR 图片写入临时文件 | USB 可恢复凭证图像 | 使用已审计的 KOReader `QRMessage` 内存路径；真机检查文件变化和关闭回收，异常时暂停接入 |
 
 ## 自动测试要求
 
@@ -134,7 +140,7 @@ Lua 字符串不可原地覆写，垃圾回收也不等于密码学意义的内�
 - 当前官方 Passport 域名、接口、应用标识和用户看到的授权主体。
 - QR 是否是短时、单次、绑定当前初始化会话且可取消的官方授权。
 - Cookie/CSRF 的最小集合、有效期和官方退出/撤销接口的真实语义。
-- KOReader 是否能在不写临时图片的情况下显示 QR。
+- KOReader `QRMessage` 内存路径在目标 PW3 上的扫码可读性、关闭回收和前后文件变化证据。
 - `dismissableRunInSubprocess()`传递敏感返回值时是否存在磁盘序列化、日志或崩溃残留。
 - 强制退出后远端会话的自然失效时间和可验证撤销路径。
 

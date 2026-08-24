@@ -52,6 +52,7 @@ fanqielite.koplugin/fanqielite/networktask.lua
 fanqielite.koplugin/fanqielite/parser.lua
 fanqielite.koplugin/fanqielite/persistence.lua
 fanqielite.koplugin/fanqielite/pua.lua
+fanqielite.koplugin/fanqielite/qrdisplay.lua
 fanqielite.koplugin/fanqielite/search.lua
 fanqielite.koplugin/fanqielite/storage.lua
 fanqielite.koplugin/main.lua
