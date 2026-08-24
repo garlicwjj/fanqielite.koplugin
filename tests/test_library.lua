@@ -83,6 +83,7 @@ equal(missing, nil, "invalid upsert rejected")
 assert(err:find("ID", 1, true), "invalid upsert error missing")
 
 local import_target = Library.new()
+local credential_canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
 local existing = assert(Library.upsert(import_target, {
     id = "7234567890123456789", title = "本地书名", author = "本地作者",
 }, { chapter("20000000001"), chapter("20000000002") }, 2, 800))
@@ -90,11 +91,14 @@ local added, updated = Library.import_books(import_target, {
     {
         id = existing.id, title = "导入书名", author = "", cover_url = "",
         imported_progress = { chapter_id = "20000000001", chapter_title = "第一章", position = 0.2 },
+        cookie = credential_canary,
     },
     {
         id = "7334567890123456789", title = "导入新书", author = "作者丙",
         cover_url = "https://example.invalid/cover.jpg",
         imported_progress = { chapter_id = "30000000002", chapter_title = "第二章", position = 0.4 },
+        sessionid = credential_canary,
+        auth_headers = { Cookie = credential_canary },
     },
 }, 900)
 equal(added, 1, "import added count")
@@ -105,10 +109,13 @@ equal(#existing.chapters, 2, "import preserves local directory")
 equal(existing.current_index, 2, "import preserves local progress")
 equal(existing.imported_progress, nil, "import must not attach remote progress to locally read book")
 equal(existing.directory_updated_at, 800, "metadata import preserves directory refresh time")
+equal(existing.cookie, nil, "credential field reached existing local book")
 
 local imported = assert(Library.find(import_target, "7334567890123456789"))
 equal(#imported.chapters, 0, "new import starts without fabricated directory")
 equal(imported.directory_updated_at, 0, "new import has no fabricated directory refresh time")
+equal(imported.sessionid, nil, "credential field reached new local book")
+equal(imported.auth_headers, nil, "authorization headers reached new local book")
 equal(imported.imported_progress.chapter_id, "30000000002", "imported chapter retained")
 local refreshed_import = assert(Library.upsert(import_target, {
     id = imported.id, title = imported.title, author = imported.author,
