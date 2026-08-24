@@ -80,6 +80,13 @@ function FanqieLite:info(text, timeout)
     UIManager:show(InfoMessage:new{ text = text, timeout = timeout })
 end
 
+function FanqieLite:show_cache_prune_warning(reason)
+    self:info("章节已保存并可继续阅读，但旧缓存自动清理未完成：\n"
+        .. tostring(reason)
+        .. "\n\n书架和当前章节没有损坏。稍后可在本书页面选择“清理章节缓存”；"
+        .. "如果持续出现，请检查 Kindle 剩余空间或只读状态。")
+end
+
 function FanqieLite:book_local_status(book, cached_count, now)
     local chapter_count = type(book.chapters) == "table" and #book.chapters or 0
     local cache_text = cached_count == nil
@@ -378,7 +385,7 @@ function FanqieLite:show_settings()
         { text = _("导出本地书架"), callback = function() self:prepare_local_export() end },
         {
             text = _("缓存管理说明"), callback = function()
-                self:info("每本书最多保留最近 12 个已打开章节。\n\n清理入口位于对应书籍页面；清理缓存不会删除书籍、目录或阅读进度。离线时只能打开仍有完整缓存的章节。")
+                self:info("每本书最多保留 12 个章节缓存；写入新章节后会优先清理较早写入的缓存。\n\n清理入口位于对应书籍页面；清理缓存不会删除书籍、目录或阅读进度。离线时只能打开仍有完整缓存的章节。")
             end,
         },
         {
@@ -603,7 +610,7 @@ function FanqieLite:open_chapter(book_id, index)
         local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
         if not parsed then error(chapter_err) end
         parsed.title = chapter.title ~= "" and chapter.title or parsed.title
-        local path, write_err = self.storage:write_chapter(
+        local path, write_err, prune_warning = self.storage:write_chapter(
             book.id, chapter.id, Parser.to_xhtml(book, parsed))
         if not path then
             error("保存章节失败：" .. tostring(write_err)
@@ -611,7 +618,12 @@ function FanqieLite:open_chapter(book_id, index)
         end
         local ready, position_or_err = self:prepare_chapter_open(book, index, path)
         if not ready then error(position_or_err) end
-        UIManager:nextTick(function() self:open_file(path, position_or_err) end)
+        UIManager:nextTick(function()
+            self:open_file(path, position_or_err)
+            if prune_warning then
+                UIManager:nextTick(function() self:show_cache_prune_warning(prune_warning) end)
+            end
+        end)
     end)
 end
 
