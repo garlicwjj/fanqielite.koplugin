@@ -50,6 +50,8 @@ fanqielite.koplugin/fanqielite/export.lua
 fanqielite.koplugin/fanqielite/ephemeral_session.lua
 fanqielite.koplugin/fanqielite/ephemeral_task.lua
 fanqielite.koplugin/fanqielite/ephemeral_http.lua
+fanqielite.koplugin/fanqielite/ephemeral_import_task.lua
+fanqielite.koplugin/fanqielite/ephemeral_result.lua
 fanqielite.koplugin/fanqielite/http.lua
 fanqielite.koplugin/fanqielite/import.lua
 fanqielite.koplugin/fanqielite/library.lua
