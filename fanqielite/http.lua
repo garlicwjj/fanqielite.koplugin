@@ -1,4 +1,6 @@
+local DataStorage = require("datastorage")
 local https = require("ssl.https")
+local http = require("socket.http")
 local socketutil = require("socketutil")
 
 local Http = {}
@@ -7,6 +9,7 @@ local USER_AGENT = "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 Chrome/12
 local MAX_BYTES = 1024 * 1024
 local BLOCK_TIMEOUT = 10
 local TOTAL_TIMEOUT = 20
+local CA_FILE = DataStorage:getDataDir() .. "/data/ca-bundle.crt"
 
 local function request_error(value)
     value = tostring(value or "")
@@ -16,10 +19,67 @@ local function request_error(value)
     if value == "timeout" or value == "sink timeout" or value == "wantread" then
         return "网络连接超时，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
     end
-    if value:lower():find("certificate", 1, true) or value:lower():find("verify", 1, true) then
+    local lower = value:lower()
+    if lower:find("certificate", 1, true) or lower:find("verify", 1, true)
+            or lower:find("hostname", 1, true) or lower:find("issuer", 1, true)
+            or lower:find("self signed", 1, true) or lower:find("ca locations", 1, true) then
         return "HTTPS 证书验证失败，请先让 Kindle 联网校准系统时间；本地数据未改变"
     end
     return "网络请求失败：" .. (value ~= "" and value or "原因未知") .. "；本地数据未改变"
+end
+
+local function dns_name_matches(pattern, host)
+    if type(pattern) ~= "string" or type(host) ~= "string"
+            or pattern == "" or #pattern > 253
+            or pattern:find("[%z\1-\31\127]") then
+        return false
+    end
+    pattern = pattern:lower()
+    host = host:lower()
+    if pattern == host then return true end
+    local suffix = pattern:match("^%*%.([%a%d][%a%d%.%-]+)$")
+    if not suffix or not suffix:find("%.") then return false end
+    local required_suffix = "." .. suffix
+    if host:sub(-#required_suffix) ~= required_suffix then return false end
+    local leftmost = host:sub(1, #host - #required_suffix)
+    return leftmost ~= "" and not leftmost:find("%.", 1, true)
+end
+
+local function certificate_matches_host(certificate, host)
+    if certificate == nil then return false end
+    local ok, extensions = pcall(function() return certificate:extensions() end)
+    if not ok or type(extensions) ~= "table" then return false end
+    for _, extension in pairs(extensions) do
+        if type(extension) == "table" and type(extension.dNSName) == "table" then
+            for _, name in pairs(extension.dNSName) do
+                if dns_name_matches(name, host) then return true end
+            end
+        end
+    end
+    return false
+end
+
+local base_tls_create = https.tcp{
+    protocol = "any",
+    options = { "all", "no_sslv2", "no_sslv3", "no_tlsv1", "no_tlsv1_1" },
+    verify = "peer",
+    cafile = CA_FILE,
+}
+
+local function verified_tls_create()
+    local connection = base_tls_create()
+    local connect = connection.connect
+    function connection:connect(host, port)
+        local connected, connect_err = connect(self, host, port)
+        if not connected then return nil, connect_err end
+        local cert_ok, certificate = pcall(self.getpeercertificate, self)
+        if not cert_ok or not certificate_matches_host(certificate, host) then
+            pcall(self.close, self)
+            return nil, "certificate hostname mismatch"
+        end
+        return connected
+    end
+    return connection
 end
 
 local function status_error(code)
@@ -53,6 +113,9 @@ function Http.get(url, accept)
     if type(url) ~= "string" or not url:match("^https://fanqienovel%.com/") then
         return nil, "已拒绝访问非番茄官方 HTTPS 地址；本地数据未改变"
     end
+    if http.PROXY then
+        return nil, "检测到 HTTP 代理，已为安全起见停止请求；本地数据未改变"
+    end
     local chunks, size = {}, 0
     local started_at = os.time()
     local function sink(chunk)
@@ -65,10 +128,11 @@ function Http.get(url, accept)
         return 1
     end
     socketutil:set_timeout(BLOCK_TIMEOUT, TOTAL_TIMEOUT)
-    local called, ok, code, headers, status = pcall(https.request, {
+    local called, ok, code, headers, status = pcall(http.request, {
             url = url,
             method = "GET",
             redirect = false,
+            create = verified_tls_create,
             headers = {
                 ["User-Agent"] = USER_AGENT,
                 ["Accept"] = accept or "text/html,application/xhtml+xml",
