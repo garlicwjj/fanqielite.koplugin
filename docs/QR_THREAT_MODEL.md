@@ -78,7 +78,7 @@ Lua 字符串不可原地覆写，垃圾回收也不等于密码学意义的内�
 - 所有 ID、数组、字段、长度、HTTPS 封面和阅读位置在进入本地书架前执行严格白名单验证。
 - 服务端出现验证码、品牌/授权主体不一致或未知确认页面时立即停止，不尝试绕过。
 
-当前 `fanqielite.http` 与 `networktask` 是无凭证公开 GET 通道；它已显式验证 KOReader CA 链和证书 SAN，但返回路径和接口仍不能直接当成扫码传输层，详见 [`TLS_SECURITY_AUDIT.md`](TLS_SECURITY_AUDIT.md)。未启用的 `ephemeral_http.lua` 已复用同一 TLS 门禁，并限制为固定官方主机、代码内操作白名单、受限内存凭证头和固定错误，详见 [`EPHEMERAL_HTTP_AUDIT.md`](EPHEMERAL_HTTP_AUDIT.md)；它没有真实端点、Cookie 语义或流程接线。`ephemeral_task.lua` 只为受信任子任务提供简单字符串匿名管道；成功响应必须先在同一子进程内丢弃凭证并标准化，不能把原始正文或响应头直接送入管道。
+当前 `fanqielite.http` 与 `networktask` 是无凭证公开 GET 通道；它已显式验证 KOReader CA 链和证书 SAN，但返回路径和接口仍不能直接当成扫码传输层，详见 [`TLS_SECURITY_AUDIT.md`](TLS_SECURITY_AUDIT.md)。未启用的 `ephemeral_http.lua` 已复用同一 TLS 门禁，并限制为固定官方主机、代码内操作白名单、受限内存凭证头和固定错误，详见 [`EPHEMERAL_HTTP_AUDIT.md`](EPHEMERAL_HTTP_AUDIT.md)；它没有真实端点、Cookie 语义或流程接线。`ephemeral_result.lua` 与 `ephemeral_import_task.lua` 只允许通过现有 JSON 白名单、标准化编码和父子两侧复验后的最小书架字符串进入简单匿名管道；原始正文或响应头不能直接返回。真实响应解析器仍必须证明只选择正确字段，不能把秘密误映射到普通文本字段。
 
 ## 持久化与日志门禁
 
