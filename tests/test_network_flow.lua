@@ -2,6 +2,9 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local online_calls, wrap_calls, reset_calls = 0, 0, 0
 local infos = {}
+local network_error
+local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
+local tostring_calls = 0
 
 local NetworkMgr = {
     runWhenOnline = function(_, callback)
@@ -25,6 +28,14 @@ function WidgetContainer:extend(definition)
     return setmetatable(definition, { __index = self })
 end
 
+local NetworkTask = {
+    get = function() return nil, network_error end,
+}
+
+local Parser = {
+    book_id = function(value) return value end,
+}
+
 local stubs = {
     ["ui/widget/confirmbox"] = {},
     datastorage = { getDataDir = function() return "/mnt/us/koreader" end },
@@ -47,8 +58,8 @@ local stubs = {
     ["fanqielite.export"] = {},
     ["fanqielite.import"] = {},
     ["fanqielite.library"] = {},
-    ["fanqielite.networktask"] = {},
-    ["fanqielite.parser"] = {},
+    ["fanqielite.networktask"] = NetworkTask,
+    ["fanqielite.parser"] = Parser,
     ["fanqielite.persistence"] = {},
     ["fanqielite.search"] = {},
     ["fanqielite.storage"] = {},
@@ -81,9 +92,8 @@ assert(not nested_ran, "nested network operation bypassed the busy gate")
 assert(infos[#infos]:find("已有网络操作", 1, true), "busy gate did not explain the rejection")
 assert(plugin.network_busy == false, "network gate remained active after nested rejection")
 
-plugin:with_network(function()
-    error("操作已取消；本地书架、阅读进度和缓存没有改变。")
-end)
+network_error = "操作已取消；本地书架、阅读进度和缓存没有改变。"
+plugin:with_network(function() plugin:load_book("1234567890") end)
 local cancelled = infos[#infos]
 assert(cancelled:find("操作未完成", 1, true), "cancellation did not use the safe failure heading")
 assert(cancelled:find("操作已取消", 1, true), "cancellation reason was lost")
@@ -91,13 +101,30 @@ assert(cancelled:find("没有改变", 1, true), "cancellation safety detail was 
 assert(not cancelled:find("test_network_flow.lua", 1, true), "cancellation leaked a Lua file path")
 assert(plugin.network_busy == false, "network gate remained active after cancellation")
 
-plugin:with_network(function() error("模拟解析失败") end)
+network_error = setmetatable({}, { __tostring = function()
+    tostring_calls = tostring_calls + 1
+    return credential_canary
+end })
+plugin:with_network(function() plugin:load_book("1234567890") end)
+local unsafe_dependency = infos[#infos]
+assert(unsafe_dependency:find("可安全显示的错误说明", 1, true), "unsafe dependency error did not use fixed message")
+assert(not unsafe_dependency:find(credential_canary, 1, true), "unsafe dependency error leaked raw content")
+assert(tostring_calls == 0, "unsafe dependency error invoked __tostring")
+
+plugin:with_network(function()
+    error(setmetatable({}, { __tostring = function()
+        tostring_calls = tostring_calls + 1
+        return credential_canary
+    end }))
+end)
 local failed = infos[#infos]
 assert(failed:find("操作未完成", 1, true), "failure heading missing")
-assert(failed:find("模拟解析失败", 1, true), "failure reason missing")
+assert(failed:find("未预期", 1, true), "unexpected failure did not use fixed message")
+assert(not failed:find(credential_canary, 1, true), "unexpected failure leaked raw content")
+assert(tostring_calls == 0, "unexpected failure invoked __tostring")
 assert(not failed:find("test_network_flow.lua", 1, true), "failure leaked a Lua file path")
 assert(plugin.network_busy == false, "network gate remained active after failure")
-assert(reset_calls == 4, "Trapper was not reset after every completed wrapper")
+assert(reset_calls == 5, "Trapper was not reset after every completed wrapper")
 
 local no_directory = plugin:book_local_status({ chapters = {} }, 0, 1000)
 assert(no_directory:find("尚未获取目录", 1, true), "missing directory state not explained")

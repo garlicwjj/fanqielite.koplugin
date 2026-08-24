@@ -10,7 +10,9 @@ local BLOCK_TIMEOUT = 10
 local TOTAL_TIMEOUT = 20
 
 local function request_error(value)
-    value = tostring(value or "")
+    if type(value) ~= "string" then
+        return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
+    end
     if value == "response too large" then
         return "官方响应超过 1 MB 安全限制，已停止读取；本地数据未改变"
     end
@@ -23,11 +25,11 @@ local function request_error(value)
             or lower:find("self signed", 1, true) or lower:find("ca locations", 1, true) then
         return "HTTPS 证书验证失败，请先让 Kindle 联网校准系统时间；本地数据未改变"
     end
-    return "网络请求失败：" .. (value ~= "" and value or "原因未知") .. "；本地数据未改变"
+    return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
 end
 
 local function status_error(code)
-    code = tonumber(code)
+    code = (type(code) == "string" or type(code) == "number") and tonumber(code) or nil
     if code == 301 or code == 302 or code == 303 or code == 307 or code == 308 then
         return "官方地址返回重定向（HTTP " .. tostring(code) .. "），已为安全起见停止请求；本地数据未改变"
     elseif code == 401 or code == 403 then
@@ -46,7 +48,7 @@ local function has_header(headers, expected)
     if type(headers) ~= "table" then return false end
     expected = expected:lower()
     for name, value in pairs(headers) do
-        if tostring(name):lower() == expected and value ~= nil and tostring(value) ~= "" then
+        if type(name) == "string" and name:lower() == expected and value ~= nil and value ~= "" then
             return true
         end
     end
@@ -88,7 +90,8 @@ function Http.get(url, accept)
     socketutil:reset_timeout()
     if not called then return nil, request_error(ok) end
     if not ok then return nil, request_error(code or status) end
-    if tonumber(code) ~= 200 then return nil, status_error(code) end
+    local numeric_code = (type(code) == "string" or type(code) == "number") and tonumber(code) or nil
+    if numeric_code ~= 200 then return nil, status_error(numeric_code) end
     if has_header(headers, "bdturing-verify")
             or has_header(headers, "x-vc-bdturing-parameters") then
         return nil, "番茄官方安全验证需要在浏览器中完成，Kindle 无法显示该验证。"
@@ -98,7 +101,9 @@ function Http.get(url, accept)
     if size == 0 then
         return nil, "番茄官方服务返回空内容，可能正在限制访问；请稍后重试；本地数据未改变"
     end
-    local content_length = headers and tonumber(headers["content-length"] or headers["Content-Length"])
+    local content_length_value = headers and (headers["content-length"] or headers["Content-Length"])
+    local content_length = (type(content_length_value) == "string" or type(content_length_value) == "number")
+        and tonumber(content_length_value) or nil
     if content_length and content_length ~= size then
         return nil, "官方响应传输不完整，已拒绝解析；本地数据未改变"
     end
