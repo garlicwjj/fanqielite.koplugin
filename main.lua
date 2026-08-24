@@ -32,6 +32,23 @@ local FanqieLite = WidgetContainer:extend{
 }
 
 local BASE = "https://fanqienovel.com"
+local user_error_messages = setmetatable({}, { __mode = "k" })
+
+local function raise_user_error(message)
+    if type(message) ~= "string" or message == "" then
+        message = "操作无法安全完成，请返回本地书架后重试。"
+    end
+    local token = {}
+    user_error_messages[token] = message
+    error(token, 0)
+end
+
+local function user_error_detail(prefix, detail)
+    if type(detail) ~= "string" or detail == "" then
+        return prefix .. "操作没有返回可安全显示的错误说明，请返回本地书架确认状态后重试。"
+    end
+    return prefix .. detail
+end
 
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
@@ -177,7 +194,11 @@ function FanqieLite:with_network(callback)
             self.network_busy = false
             Trapper:reset()
             if not ok then
-                local message = tostring(err):gsub("^.-:%d+:%s*", "")
+                local message = user_error_messages[err]
+                if not message then
+                    message = "发生未预期的插件错误。为避免显示不受信任的错误内容，详细信息已隐藏。"
+                        .. "请返回本地书架确认状态后重试；若持续出现，请停止操作并重启 KOReader。"
+                end
                 self:info("操作未完成：\n" .. message)
             end
         end)
@@ -187,34 +208,34 @@ end
 function FanqieLite:fetch_book(book_id)
     local html, page_err = NetworkTask.get(
         BASE .. "/page/" .. book_id, nil, "正在读取书籍信息……")
-    if not html then error("获取书籍页面失败：" .. tostring(page_err)) end
+    if not html then raise_user_error(user_error_detail("获取书籍页面失败：", page_err)) end
     local json_text, state_err = Parser.extract_initial_state(html)
-    if not json_text then error(state_err) end
+    if not json_text then raise_user_error(state_err) end
     local state, decode_err = Parser.decode_json(json_text)
-    if not state then error(decode_err) end
+    if not state then raise_user_error(decode_err) end
     local book, book_err = Parser.book_from_state(state, book_id)
-    if not book then error(book_err) end
+    if not book then raise_user_error(book_err) end
 
     local directory_text, directory_err = NetworkTask.get(
         BASE .. "/api/reader/directory/detail?bookId=" .. book_id,
         "application/json", "正在读取目录……")
-    if not directory_text then error("获取目录失败：" .. tostring(directory_err)) end
+    if not directory_text then raise_user_error(user_error_detail("获取目录失败：", directory_err)) end
     local payload, payload_err = Parser.decode_json(directory_text)
-    if not payload then error(payload_err) end
+    if not payload then raise_user_error(payload_err) end
     local chapters, chapters_err = Parser.directory_from_payload(payload)
-    if not chapters then error(chapters_err) end
+    if not chapters then raise_user_error(chapters_err) end
     return book, chapters
 end
 
 function FanqieLite:load_book(input)
     local book_id, input_err = Parser.book_id(input)
-    if not book_id then error(input_err) end
+    if not book_id then raise_user_error(input_err) end
     local book, chapters = self:fetch_book(book_id)
     local record, save_err = Library.upsert(self.library, book, chapters)
-    if not record then error(save_err) end
+    if not record then raise_user_error(save_err) end
     self.active_book_id = record.id
     local saved, state_err = self:save_state()
-    if not saved then error(state_err) end
+    if not saved then raise_user_error(state_err) end
     self:info("已加入《" .. record.title .. "》\n共 " .. tostring(#record.chapters) .. " 章", 3)
     UIManager:nextTick(function() self:show_book(record.id) end)
 end
@@ -222,10 +243,10 @@ end
 function FanqieLite:refresh_book(book_id)
     local book, chapters = self:fetch_book(book_id)
     local record, save_err = Library.upsert(self.library, book, chapters)
-    if not record then error(save_err) end
+    if not record then raise_user_error(save_err) end
     self.active_book_id = record.id
     local saved, state_err = self:save_state()
-    if not saved then error(state_err) end
+    if not saved then raise_user_error(state_err) end
     self:info("目录已刷新，共 " .. tostring(#record.chapters) .. " 章", 3)
 end
 
@@ -262,11 +283,11 @@ end
 function FanqieLite:search_books(url, query)
     local json_text, request_err = NetworkTask.get(
         url, "application/json", "正在番茄官网搜索“" .. query .. "”……")
-    if not json_text then error("搜索未完成：" .. tostring(request_err)) end
+    if not json_text then raise_user_error(user_error_detail("搜索未完成：", request_err)) end
     local payload, decode_err = Parser.decode_json(json_text)
-    if not payload then error(decode_err) end
+    if not payload then raise_user_error(decode_err) end
     local results, results_err = Search.parse(payload)
-    if not results then error(results_err) end
+    if not results then raise_user_error(results_err) end
     UIManager:nextTick(function() self:show_search_results(query, results) end)
 end
 
@@ -602,22 +623,22 @@ function FanqieLite:open_chapter(book_id, index)
     self:with_network(function()
         local html, fetch_err = NetworkTask.get(
             BASE .. "/reader/" .. chapter.id, nil, loading_label)
-        if not html then error("读取章节失败：" .. tostring(fetch_err)) end
+        if not html then raise_user_error(user_error_detail("读取章节失败：", fetch_err)) end
         local json_text, state_err = Parser.extract_initial_state(html)
-        if not json_text then error(state_err) end
+        if not json_text then raise_user_error(state_err) end
         local state, decode_err = Parser.decode_json(json_text)
-        if not state then error(decode_err) end
+        if not state then raise_user_error(decode_err) end
         local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
-        if not parsed then error(chapter_err) end
+        if not parsed then raise_user_error(chapter_err) end
         parsed.title = chapter.title ~= "" and chapter.title or parsed.title
         local path, write_err, prune_warning = self.storage:write_chapter(
             book.id, chapter.id, Parser.to_xhtml(book, parsed))
         if not path then
-            error("保存章节失败：" .. tostring(write_err)
+            raise_user_error(user_error_detail("保存章节失败：", write_err)
                 .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
         end
         local ready, position_or_err = self:prepare_chapter_open(book, index, path)
-        if not ready then error(position_or_err) end
+        if not ready then raise_user_error(position_or_err) end
         UIManager:nextTick(function()
             self:open_file(path, position_or_err)
             if prune_warning then

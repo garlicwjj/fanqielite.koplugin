@@ -216,4 +216,26 @@ assert(crashed == nil)
 contains(certificate_err, "证书验证失败", "certificate message")
 assert(reset_calls == 18, "timeout must reset after every attempted request")
 
+local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
+handler = function() return nil, "raw socket failure " .. credential_canary end
+local transport_failed, transport_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(transport_failed == nil)
+contains(transport_err, "无法连接番茄官方服务", "generic transport message")
+assert(not transport_err:find(credential_canary, 1, true), "raw transport error leaked")
+assert(reset_calls == 19, "timeout must reset after raw transport failure")
+
+local transport_tostring_calls = 0
+handler = function()
+    error(setmetatable({}, { __tostring = function()
+        transport_tostring_calls = transport_tostring_calls + 1
+        return credential_canary
+    end }))
+end
+local object_failed, object_err = Http.get("https://fanqienovel.com/page/1234567890")
+assert(object_failed == nil)
+contains(object_err, "无法连接番茄官方服务", "object transport message")
+assert(not object_err:find(credential_canary, 1, true), "transport error object leaked")
+assert(transport_tostring_calls == 0, "transport error object invoked __tostring")
+assert(reset_calls == 20, "timeout must reset after object transport failure")
+
 print("http tests passed")
