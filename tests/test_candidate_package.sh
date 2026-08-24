@@ -40,11 +40,13 @@ fanqielite.koplugin/_meta.lua
 fanqielite.koplugin/docs/
 fanqielite.koplugin/docs/QUALITY_PLAN.md
 fanqielite.koplugin/docs/QR_THREAT_MODEL.md
+fanqielite.koplugin/docs/SUBPROCESS_SECURITY_AUDIT.md
 fanqielite.koplugin/docs/bookshelf-format.md
 fanqielite.koplugin/docs/compatibility-matrix.md
 fanqielite.koplugin/fanqielite/
 fanqielite.koplugin/fanqielite/export.lua
 fanqielite.koplugin/fanqielite/ephemeral_session.lua
+fanqielite.koplugin/fanqielite/ephemeral_task.lua
 fanqielite.koplugin/fanqielite/http.lua
 fanqielite.koplugin/fanqielite/import.lua
 fanqielite.koplugin/fanqielite/library.lua
@@ -73,6 +75,7 @@ test -s "$plugin_root/docs/bookshelf-format.md"
 test -s "$plugin_root/docs/compatibility-matrix.md"
 test -s "$plugin_root/docs/QUALITY_PLAN.md"
 test -s "$plugin_root/docs/QR_THREAT_MODEL.md"
+test -s "$plugin_root/docs/SUBPROCESS_SECURITY_AUDIT.md"
 
 if command -v luac5.1 >/dev/null 2>&1; then
     find "$plugin_root" -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
