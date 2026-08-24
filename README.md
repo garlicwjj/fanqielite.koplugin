@@ -18,7 +18,7 @@
 
 ## 安装
 
-将整个 `fanqielite.koplugin` 目录复制到 KOReader 的 `plugins` 目录，完整重启 KOReader，然后从工具菜单打开“番茄小说（实验版）”。
+候选测试包解压后应直接得到 `fanqielite.koplugin` 目录。将它复制到 KOReader 的 `plugins` 目录，完整重启 KOReader，然后从工具菜单打开“番茄小说（实验版）”。分步操作、目录检查、升级备份、常见错误和安全回退见 [`INSTALL.md`](INSTALL.md)。不要把 GitHub 源码压缩包的外层目录直接复制到 Kindle。
 
 ## 已知限制
 
