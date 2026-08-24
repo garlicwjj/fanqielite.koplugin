@@ -39,6 +39,6 @@
 
 ## 从浏览器导出
 
-仓库中的 [`tools/export-bookshelf.js`](../tools/export-bookshelf.js) 只能在 `https://fanqienovel.com/bookshelf` 页面执行。它复用浏览器当前已经登录的会话，向该页面正在使用的番茄官方接口发起只读请求，但不会读取、显示或写入浏览器 Cookie。
+仓库中的 [`tools/export-bookshelf.js`](../tools/export-bookshelf.js) 只能在 `https://fanqienovel.com/bookshelf` 页面执行。它复用浏览器当前已经登录的会话，只向代码中固定的同源精确只读路径发起请求；从页面性能记录发现的跨域、近似路径、带用户信息或片段地址都会在请求前拒绝。脚本不会读取、显示或写入浏览器 Cookie，也不读取 Web Storage。
 
-脚本只生成本页格式白名单中的书籍数据，不包含 Cookie、Token、手机号或请求头。使用步骤会在浏览器端实测通过后补充；当前仍属于开发验证工具，不建议普通用户使用。
+每个响应按 UTF-8 流式读取并限制为 2 MB，生成文件仍限制为 256 KB。脚本只生成本页格式白名单中的书籍数据，不包含 Cookie、Token、手机号或请求头；网络异常、HTTP 失败、服务端消息、畸形 JSON 和读取异常只显示固定分类，不会把原始正文或异常带入弹窗或控制台。使用步骤会在无敏感内容的测试账号实测通过后补充；当前仍属于开发验证工具，不建议普通用户使用。
