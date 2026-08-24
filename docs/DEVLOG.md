@@ -202,7 +202,7 @@ JSON 格式允许携带当前章节内 0 到 1 的 `reading_position`，但旧�
 
 固定审计 KOReader v2026.03 `Trapper:dismissableRunInSubprocess()`与对应 `koreader-base` 后确认，返回值由 POSIX 匿名管道在父子进程间传递，没有命名临时文件。默认复杂结果会经过 `string.buffer`，序列化/解码异常会进入 logger；底层未捕获异常还会把堆栈打印到进程输出。取消使用 `SIGKILL`，子进程无法运行退出接口或任何 Lua 清理。匿名管道因此只解决 IPC 不落盘，不能替任务代码、HTTP 库、Cookie jar、日志或远端会话担保。
 
-新的 `ephemeral_task.lua` 不复用公开 GET 的复杂返回路径：它只接受受信任函数，内部 `pcall` 后只返回一个非空字符串，强制 `task_returns_simple_string=true`，以固定成功/失败帧传输，并在子进程与父进程两侧执行 256 KB 限制。任何异常值、表、空值、超限数据、畸形帧、取消或 Trapper 异常都变成固定中文分类，不调用 `tostring(error)`或 logger。合成 canary 测试证明这些失败路径不会把原始异常放入管道或返回 UI；成功路径按设计仍把受限字符串交给父进程。真实 HTTP/Cookie 客户端、Passport、账号和 Kindle 均未接入，仍须逐行审计任务自身的输出与文件行为。
+新的 `ephemeral_task.lua` 不复用公开 GET 的复杂返回路径：它只接受受信任函数，内部 `pcall` 后只返回一个非空字符串，强制 `task_returns_simple_string=true`，以固定成功/失败帧传输，并在子进程与父进程两侧执行 256 KB 限制。任何异常值、表、空值、超限数据、畸形帧、取消或 Trapper 异常都变成固定中文分类，不调用 `tostring(error)`或 logger。合成 canary 测试证明这些失败路径不会把原始异常放入管道或返回 UI；成功路径按设计仍把受限字符串交给父进程。该阶段真实 HTTP/Cookie 客户端、Passport、账号和 Kindle 均未接入，仍须逐行审计任务自身的输出与文件行为。
 
 ## 公开 HTTPS 证书校验补强
 
@@ -210,4 +210,12 @@ JSON 格式允许携带当前章节内 0 到 1 的 `reading_position`，但旧�
 
 官方 Kindle v2026.03 包包含 `koreader/data/ca-bundle.crt`。新实现通过 LuaSec 自定义连接器显式启用 `verify = "peer"` 并引用该 CA 集，握手后读取叶证书 SAN，再按大小写不敏感的精确匹配或仅左侧单标签通配符匹配官方主机名；不回退到 CN。证书缺失、扩展解析失败、SAN 缺失或主机名不匹配都会关闭连接并返回固定中文错误。合成测试同时锁定 CA 路径、禁用旧 TLS 版本的选项和上述失败关闭行为。
 
-该改动尚未在 PW3 发起真实 TLS 握手，也未覆盖设备时钟异常、证书撤销/OCSP、DNS 阶段超时或网络切换。真实 Cookie 客户端仍未实现，未来必须复用或抽取这条已验证传输边界，不能退回默认 LuaSec 请求封装。
+该改动尚未在 PW3 发起真实 TLS 握手，也未覆盖设备时钟异常、证书撤销/OCSP、DNS 阶段超时或网络切换。后续敏感请求原型必须复用这条已验证传输边界，不能退回默认 LuaSec 请求封装；这仍不等于真实 Cookie 协议已经实现。
+
+## 端点无关敏感 HTTPS 客户端
+
+在不知道当前官方扫码端点和 Cookie 语义时直接写 Passport 流程，会把猜测固化进安全关键代码。2026-08-24 因此先把 CA/SAN 连接器抽为 `verified_tls.lua`，让公开 GET 和未启用的敏感客户端使用同一实现；原有公开网络合成测试继续覆盖证书链配置、错误 SAN、缺少证书和失败关闭。
+
+新的 `ephemeral_http.lua` 没有真实端点或生产调用。它把主机固定为 `fanqienovel.com`，只接受构造时复制的操作名、精确路径和 GET/POST 白名单，拒绝动态 URL、查询串、未知参数/头、代理和重定向。请求正文、响应和凭证头分别设限；底层异常、状态文本和未列出的响应头不会返回 UI。源码 canary 测试同时禁止 logger、`print()`、`io`、`os` 和原始异常字符串化。
+
+成功正文与白名单允许的 `Set-Cookie` 仍然是敏感内存，客户端不会谎称它们安全或已清零。未来端点任务必须在同一子进程内完成 Cookie 使用、最小书架解析与退出尝试，只把严格标准化的最小 JSON 交给匿名管道。当前还没有 Cookie 合并/过期规则、轮询、退出、账号或 Kindle 证据，主界面的扫码入口仍保持“开发中”。
