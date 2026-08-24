@@ -38,6 +38,7 @@ fanqielite.koplugin/LICENSE
 fanqielite.koplugin/README.md
 fanqielite.koplugin/_meta.lua
 fanqielite.koplugin/docs/
+fanqielite.koplugin/docs/EPHEMERAL_HTTP_AUDIT.md
 fanqielite.koplugin/docs/QUALITY_PLAN.md
 fanqielite.koplugin/docs/QR_THREAT_MODEL.md
 fanqielite.koplugin/docs/SUBPROCESS_SECURITY_AUDIT.md
@@ -48,6 +49,7 @@ fanqielite.koplugin/fanqielite/
 fanqielite.koplugin/fanqielite/export.lua
 fanqielite.koplugin/fanqielite/ephemeral_session.lua
 fanqielite.koplugin/fanqielite/ephemeral_task.lua
+fanqielite.koplugin/fanqielite/ephemeral_http.lua
 fanqielite.koplugin/fanqielite/http.lua
 fanqielite.koplugin/fanqielite/import.lua
 fanqielite.koplugin/fanqielite/library.lua
@@ -58,6 +60,7 @@ fanqielite.koplugin/fanqielite/pua.lua
 fanqielite.koplugin/fanqielite/qrdisplay.lua
 fanqielite.koplugin/fanqielite/search.lua
 fanqielite.koplugin/fanqielite/storage.lua
+fanqielite.koplugin/fanqielite/verified_tls.lua
 fanqielite.koplugin/main.lua
 EOF
 unzip -Z1 "$archive" | LC_ALL=C sort > "$test_root/actual.txt"
@@ -73,6 +76,7 @@ test "$(sed -n 's/^commit=//p' "$plugin_root/BUILD-INFO.txt")" = "$(git -C "$rep
 grep -Eq '^worktree=(clean|dirty)$' "$plugin_root/BUILD-INFO.txt"
 grep -Fqx 'status=candidate-test-not-release' "$plugin_root/BUILD-INFO.txt"
 test -s "$plugin_root/docs/bookshelf-format.md"
+test -s "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 test -s "$plugin_root/docs/compatibility-matrix.md"
 test -s "$plugin_root/docs/QUALITY_PLAN.md"
 test -s "$plugin_root/docs/QR_THREAT_MODEL.md"
