@@ -4,6 +4,18 @@ local Session = {}
 Session.__index = Session
 
 Session.MAX_DURATION = 5 * 60
+Session.MAX_QR_BYTES = 2048
+Session.MAX_POLL_TICKET_BYTES = 4096
+Session.MAX_COOKIE_BYTES = 16 * 1024
+Session.MAX_AUTHORIZATION_BYTES = 16 * 1024
+Session.MAX_TOKEN_BYTES = 4096
+
+local credential_limits = {
+    cookie = Session.MAX_COOKIE_BYTES,
+    authorization = Session.MAX_AUTHORIZATION_BYTES,
+    csrf_token = Session.MAX_TOKEN_BYTES,
+    logout_ticket = Session.MAX_TOKEN_BYTES,
+}
 
 local active_states = {
     initializing = true,
@@ -31,6 +43,23 @@ local function current(self, run_id, expected)
     return true
 end
 
+local function bounded_text(value, maximum)
+    return type(value) == "string" and value ~= "" and #value <= maximum
+        and not value:find("[%z\1-\31\127]")
+end
+
+local function bounded_credentials(credentials)
+    if type(credentials) ~= "table" then return nil end
+    local output = {}
+    for key, value in pairs(credentials) do
+        local maximum = type(key) == "string" and credential_limits[key] or nil
+        if not maximum or not bounded_text(value, maximum) then return nil end
+        output[key] = value
+    end
+    if output.cookie == nil and output.authorization == nil then return nil end
+    return output
+end
+
 local function cleanup_notice(cleaned)
     if cleaned == false then
         return "官方会话退出未完成；Kindle 未保留账号凭证，请稍后在账号安全页面检查会话。"
@@ -48,6 +77,9 @@ local function attempt_cleanup(self, cleanup)
             local called, result = pcall(cleanup, sensitive)
             cleaned = called and result and true or false
         end
+    end
+    if type(sensitive) == "table" then
+        for key in pairs(sensitive) do sensitive[key] = nil end
     end
     self._sensitive = nil
     self._qr_expires_at = nil
@@ -100,8 +132,8 @@ function Session:qr_ready(run_id, qr_payload, poll_ticket, expires_at)
     if not valid then return nil, valid_err end
     local now = tonumber(self._clock()) or 0
     expires_at = tonumber(expires_at)
-    if type(qr_payload) ~= "string" or qr_payload == "" or #qr_payload > 8192
-            or type(poll_ticket) ~= "string" or poll_ticket == "" or #poll_ticket > 4096
+    if not bounded_text(qr_payload, Session.MAX_QR_BYTES)
+            or not bounded_text(poll_ticket, Session.MAX_POLL_TICKET_BYTES)
             or not expires_at or expires_at ~= expires_at or expires_at <= now then
         return nil, "官方二维码数据无效，扫码导入没有开始"
     end
@@ -114,8 +146,9 @@ end
 function Session:authorize(run_id, credentials)
     local valid, valid_err = current(self, run_id, "qr_pending")
     if not valid then return nil, valid_err end
-    if type(credentials) ~= "table" then return nil, "官方授权结果无效，未读取书架" end
-    self._sensitive = credentials
+    local bounded = bounded_credentials(credentials)
+    if not bounded then return nil, "官方授权结果无效，未读取书架" end
+    self._sensitive = bounded
     self._qr_expires_at = nil
     self._state = "authorized"
     return true

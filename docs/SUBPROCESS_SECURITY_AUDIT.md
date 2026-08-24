@@ -60,6 +60,7 @@
 - 每次只通过 `ephemeral_import_task.lua` 传回经过标准化和双重复验的最小书架 JSON，由父进程再次解析。
 - 子任务内部不得 logger、`print()`、写文件、启用持久 Cookie jar 或回显原始异常。
 - QR、轮询、取书架和退出各阶段仍由 `ephemeral_session.lua` 管理状态与引用。
+- 授权结果进入会话前必须映射为固定的 `cookie`、`authorization`、`csrf_token`、`logout_ticket` 字段；不得保存原始响应表或共享调用方可修改的表引用。
 
 以下事实完成前仍是 No-Go：
 
