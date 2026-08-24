@@ -3,6 +3,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local removed, rmdir_path = {}, nil
 local cached_mode = nil
 local dir_error = nil
+local modification_times = {}
 local names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml.tmp", "notes.txt", "../escape.xhtml" }
 
 package.preload["datastorage"] = function()
@@ -11,6 +12,7 @@ end
 package.preload["libs/libkoreader-lfs"] = function()
     return {
         attributes = function(path, attribute)
+            if attribute == "modification" then return modification_times[path] end
             if path == "/safe-data/fanqielite/7633875868615461950" and attribute == "mode" then
                 return "directory"
             end
@@ -78,6 +80,37 @@ dir_error = nil
 assert(unreadable == nil, "unreadable cache directory reported as clear")
 assert(unreadable_err:find("permission denied", 1, true), "directory error detail missing")
 
+names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml" }
+os.remove = function() return nil, "read-only filesystem" end
+local pruned_count, prune_err = storage:prune("7633875868615461950", 0)
+os.remove = original_remove
+assert(pruned_count == 0, "failed cache eviction reported as removed")
+assert(prune_err and prune_err:find("2 个", 1, true), "cache eviction failure count missing")
+assert(prune_err:find("read%-only filesystem"), "cache eviction failure reason missing")
+
+dir_error = "permission denied while pruning"
+local unpruned, unpruned_err = storage:prune("7633875868615461950", 12)
+dir_error = nil
+assert(unpruned == nil, "unreadable cache directory reported as pruned")
+assert(unpruned_err:find("permission denied", 1, true), "cache prune directory error missing")
+
+names = { ".", ".." }
+removed = {}
+modification_times = {}
+for index = 1, 13 do
+    local name = tostring(10000000000 + index) .. ".xhtml"
+    names[#names + 1] = name
+    modification_times["/safe-data/fanqielite/7633875868615461950/" .. name] = 100
+end
+local protected_path = "/safe-data/fanqielite/7633875868615461950/10000000013.xhtml"
+modification_times[protected_path] = -100
+os.remove = function(path) removed[#removed + 1] = path; return true end
+local protected_pruned, protected_err = storage:prune(
+    "7633875868615461950", 12, protected_path)
+os.remove = original_remove
+assert(protected_pruned == 1 and protected_err == nil, "protected prune count is wrong")
+assert(removed[1] ~= protected_path, "newly written chapter was evicted by an older timestamp")
+
 local valid_xhtml = '<?xml version="1.0" encoding="utf-8"?>\n'
     .. '<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN">'
     .. '<head><meta charset="utf-8"/></head><body><p>正文</p></body></html>'
@@ -144,5 +177,31 @@ os.remove = original_remove
 assert(written == nil, "close failure accepted as successful write")
 assert(write_err:find("disk full", 1, true), "close failure detail missing")
 assert(temporary_removed, "temporary cache not removed after close failure")
+
+local original_prune = storage.prune
+io.open = function()
+    return {
+        write = function() return true end,
+        close = function() return true end,
+    }
+end
+os.rename = function() return true end
+local write_protected_path
+storage.prune = function(_, _, _, protected_path)
+    write_protected_path = protected_path
+    return 0, "2 个旧缓存无法删除：read-only filesystem"
+end
+local safe_path, safe_write_err, prune_warning = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+storage.prune = original_prune
+io.open = original_open
+os.rename = original_rename
+
+assert(safe_path == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml",
+    "valid new cache was discarded after eviction warning")
+assert(safe_write_err == nil, "successful cache write returned an error")
+assert(write_protected_path == safe_path, "newly written cache was not protected during eviction")
+assert(prune_warning and prune_warning:find("read%-only filesystem"),
+    "cache eviction warning was hidden after successful write")
 
 print("storage tests passed")

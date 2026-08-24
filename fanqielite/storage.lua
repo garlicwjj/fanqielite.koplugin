@@ -95,8 +95,8 @@ function Storage:write_chapter(book_id, item_id, contents)
         os.remove(temporary)
         return nil, "无法替换章节缓存：" .. tostring(rename_err)
     end
-    self:prune(book_id, 12)
-    return path
+    local _, prune_err = self:prune(book_id, 12, path)
+    return path, nil, prune_err
 end
 
 function Storage:cached_chapter(book_id, item_id)
@@ -119,7 +119,11 @@ function Storage:cached_chapter(book_id, item_id)
     return path
 end
 
-function Storage:prune(book_id, keep)
+function Storage:prune(book_id, keep, protected_path)
+    keep = tonumber(keep)
+    if not keep or keep ~= keep or keep < 0 or keep ~= math.floor(keep) then
+        return nil, "缓存保留数量无效"
+    end
     local path = self:book_dir(book_id)
     local files = {}
     local entries, entries_err = directory_entries(path)
@@ -130,9 +134,28 @@ function Storage:prune(book_id, keep)
             files[#files + 1] = { path = full, time = lfs.attributes(full, "modification") or 0 }
         end
     end
-    table.sort(files, function(a, b) return a.time > b.time end)
-    for index = keep + 1, #files do os.remove(files[index].path) end
-    return true
+    table.sort(files, function(a, b)
+        local a_protected = protected_path ~= nil and a.path == protected_path
+        local b_protected = protected_path ~= nil and b.path == protected_path
+        if a_protected ~= b_protected then return a_protected end
+        if a.time ~= b.time then return a.time > b.time end
+        return a.path < b.path
+    end)
+    local removed, failed, first_error = 0, 0, nil
+    for index = keep + 1, #files do
+        local ok, remove_err = os.remove(files[index].path)
+        if ok then
+            removed = removed + 1
+        else
+            failed = failed + 1
+            first_error = first_error or tostring(remove_err or "未知删除错误")
+        end
+    end
+    if failed > 0 then
+        return removed, "已自动清理 " .. tostring(removed) .. " 个旧缓存，但有 "
+            .. tostring(failed) .. " 个无法删除：" .. first_error
+    end
+    return removed
 end
 
 function Storage:cached_count(book_id)
