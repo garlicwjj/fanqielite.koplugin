@@ -6,28 +6,47 @@ local function trim(value)
     return tostring(value or ""):match("^%s*(.-)%s*$")
 end
 
+local function valid_xml_codepoint(value)
+    return value == 0x09 or value == 0x0A or value == 0x0D
+        or (value >= 0x20 and value <= 0xD7FF)
+        or (value >= 0xE000 and value <= 0xFFFD)
+        or (value >= 0x10000 and value <= 0x10FFFF)
+end
+
+local function encode_codepoint(value)
+    if value < 0x80 then return string.char(value) end
+    if value < 0x800 then
+        return string.char(0xC0 + math.floor(value / 0x40), 0x80 + value % 0x40)
+    end
+    if value < 0x10000 then
+        return string.char(0xE0 + math.floor(value / 0x1000),
+            0x80 + math.floor(value / 0x40) % 0x40, 0x80 + value % 0x40)
+    end
+    return string.char(0xF0 + math.floor(value / 0x40000),
+        0x80 + math.floor(value / 0x1000) % 0x40,
+        0x80 + math.floor(value / 0x40) % 0x40, 0x80 + value % 0x40)
+end
+
 local function html_entities(text)
-    return text:gsub("&nbsp;", " ")
+    local invalid = 0
+    local function numeric_entity(value, base)
+        value = tonumber(value, base)
+        if not value or not valid_xml_codepoint(value) then
+            invalid = invalid + 1
+            return ""
+        end
+        return encode_codepoint(value)
+    end
+    local decoded = text
+        :gsub("&#[xX]([%da-fA-F]+);", function(value) return numeric_entity(value, 16) end)
+        :gsub("&#(%d+);", function(value) return numeric_entity(value, 10) end)
+        :gsub("&nbsp;", " ")
         :gsub("&amp;", "&")
         :gsub("&lt;", "<")
         :gsub("&gt;", ">")
         :gsub("&quot;", "\"")
         :gsub("&#39;", "'")
-        :gsub("&#(%d+);", function(n)
-            n = tonumber(n)
-            if not n or n > 0x10FFFF then return "" end
-            if n < 0x80 then return string.char(n) end
-            if n < 0x800 then
-                return string.char(0xC0 + math.floor(n / 0x40), 0x80 + n % 0x40)
-            end
-            if n < 0x10000 then
-                return string.char(0xE0 + math.floor(n / 0x1000),
-                    0x80 + math.floor(n / 0x40) % 0x40, 0x80 + n % 0x40)
-            end
-            return string.char(0xF0 + math.floor(n / 0x40000),
-                0x80 + math.floor(n / 0x1000) % 0x40,
-                0x80 + math.floor(n / 0x40) % 0x40, 0x80 + n % 0x40)
-        end)
+    return decoded, invalid
 end
 
 local function xml_escape(text)
@@ -100,38 +119,57 @@ function Parser.book_from_state(state, fallback_id)
     }
 end
 
-local function add_chapter(output, chapter, fallback_index)
-    if type(chapter) ~= "table" then return end
+local function add_chapter(output, seen, chapter, fallback_index)
+    if type(chapter) ~= "table" then return nil, "目录包含无效章节" end
     local id = tostring(chapter.itemId or chapter.item_id or "")
-    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return end
+    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "目录包含无效章节 ID" end
+    if seen[id] then return nil, "目录包含重复章节 ID" end
     output[#output + 1] = {
         id = id,
         title = trim(chapter.title) ~= "" and trim(chapter.title)
             or ("第 " .. tostring(fallback_index) .. " 章"),
         index = tonumber(chapter.index or chapter.order) or fallback_index,
     }
+    seen[id] = true
+    return true
 end
 
 function Parser.directory_from_payload(payload)
     local data = type(payload) == "table" and payload.data or nil
     if type(data) ~= "table" then return nil, "目录接口没有返回数据" end
-    local output = {}
+    local output, seen = {}, {}
+    if data.chapterListWithVolume ~= nil and type(data.chapterListWithVolume) ~= "table" then
+        return nil, "目录卷结构无效"
+    end
     if type(data.chapterListWithVolume) == "table" then
         for _, volume in ipairs(data.chapterListWithVolume) do
-            if type(volume) == "table" then
-                local list = volume.chapterList or volume
-                if type(list) == "table" then
-                    for _, chapter in ipairs(list) do add_chapter(output, chapter, #output + 1) end
-                end
+            if type(volume) ~= "table" then return nil, "目录卷结构无效" end
+            if volume.chapterList ~= nil and type(volume.chapterList) ~= "table" then
+                return nil, "目录卷章节结构无效"
+            end
+            local list = volume.chapterList or volume
+            for _, chapter in ipairs(list) do
+                local added, add_err = add_chapter(output, seen, chapter, #output + 1)
+                if not added then return nil, add_err end
             end
         end
     end
+    if #output == 0 and data.chapterList ~= nil and type(data.chapterList) ~= "table" then
+        return nil, "目录列表结构无效"
+    end
     if #output == 0 and type(data.chapterList) == "table" then
-        for _, chapter in ipairs(data.chapterList) do add_chapter(output, chapter, #output + 1) end
+        for _, chapter in ipairs(data.chapterList) do
+            local added, add_err = add_chapter(output, seen, chapter, #output + 1)
+            if not added then return nil, add_err end
+        end
+    end
+    if #output == 0 and data.allItemIds ~= nil and type(data.allItemIds) ~= "table" then
+        return nil, "目录 ID 列表结构无效"
     end
     if #output == 0 and type(data.allItemIds) == "table" then
         for _, id in ipairs(data.allItemIds) do
-            add_chapter(output, { itemId = id }, #output + 1)
+            local added, add_err = add_chapter(output, seen, { itemId = id }, #output + 1)
+            if not added then return nil, add_err end
         end
     end
     if #output == 0 then return nil, "目录为空" end
@@ -145,7 +183,9 @@ local function plain_paragraphs(raw)
         :gsub("</[pP]%s*>", "\n")
         :gsub("</[dD][iI][vV]%s*>", "\n")
         :gsub("<[^>]+>", "")
-    raw = html_entities(raw):gsub("\r", "")
+    local invalid_entities
+    raw, invalid_entities = html_entities(raw)
+    raw = raw:gsub("\r", "")
         :gsub("\226\128[\139\140\141\142\143]", "")
         :gsub("\239\187\191", "")
     local paragraphs = {}
@@ -153,7 +193,7 @@ local function plain_paragraphs(raw)
         line = trim(line)
         if line ~= "" then paragraphs[#paragraphs + 1] = line end
     end
-    return paragraphs
+    return paragraphs, invalid_entities
 end
 
 function Parser.chapter_from_state(state, expected_item_id)
@@ -178,7 +218,21 @@ function Parser.chapter_from_state(state, expected_item_id)
     if stats.unknown > 0 then
         return nil, "番茄字符映射已经变化，已拒绝保存乱码章节"
     end
-    local paragraphs = plain_paragraphs(decoded)
+    local paragraphs, invalid_entities = plain_paragraphs(decoded)
+    if invalid_entities > 0 then
+        return nil, "官方正文包含非法字符实体，已拒绝保存异常章节"
+    end
+    for index, paragraph in ipairs(paragraphs) do
+        local normalized, entity_stats = Pua.decode(paragraph)
+        if entity_stats.invalid > 0 then
+            return nil, "官方正文包含无效 UTF-8，已拒绝保存异常章节"
+        end
+        if entity_stats.unknown > 0 then
+            return nil, "番茄字符映射已经变化，已拒绝保存乱码章节"
+        end
+        paragraphs[index] = normalized
+        stats.pua = stats.pua + entity_stats.pua
+    end
     local visible = table.concat(paragraphs, "")
     local visible_length = utf8_length(visible)
     local claimed = tonumber(chapter.chapterWordNumber) or 0

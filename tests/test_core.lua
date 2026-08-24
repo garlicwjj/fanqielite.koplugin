@@ -25,7 +25,7 @@ local malformed_directory, malformed_directory_err = Parser.directory_from_paylo
     chapterList = { { itemId = "7", title = "非法章节" }, { itemId = "../escape" } },
 } })
 equal(malformed_directory, nil, "malformed chapter ids accepted")
-assert(malformed_directory_err:find("目录为空", 1, true), "malformed directory error missing")
+assert(malformed_directory_err:find("无效", 1, true), "malformed directory error missing")
 
 local wrong_book, wrong_book_err = Parser.book_from_state({ page = {
     bookId = "10000000002", bookName = "错误书籍",
