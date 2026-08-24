@@ -2,6 +2,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local encoded_payload
 local encoded_contents = "{\"format\":\"fanqielite-bookshelf\"}"
+local encode_error
+local encode_tostring_calls = 0
 local decode_handler
 local sync_ok, sync_err = true, nil
 package.preload["ffi/util"] = function()
@@ -13,6 +15,7 @@ end
 package.preload["rapidjson"] = function()
     return {
         encode = function(payload)
+            if encode_error then error(encode_error) end
             encoded_payload = payload
             return encoded_contents
         end,
@@ -78,6 +81,18 @@ assert(count == 2)
 local verified = assert(Import.read_file(path))
 assert(#verified == 2, "written export did not pass import validation")
 assert(io.open(path .. ".tmp", "rb") == nil, "temporary export was left behind")
+
+encode_error = setmetatable({}, { __tostring = function()
+    encode_tostring_calls = encode_tostring_calls + 1
+    return "encoder exposed FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
+end })
+local encode_failed, encode_failed_err = Export.write(path, library, "2026-08-17T12:00:00Z")
+encode_error = nil
+assert(encode_failed == nil and encode_failed_err:find("无法生成书架 JSON", 1, true))
+assert(not encode_failed_err:find("FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY", 1, true),
+    "export error leaked encoder context")
+assert(encode_tostring_calls == 0, "export stringified the raw encoder exception")
+assert(io.open(path .. ".tmp", "rb") == nil, "encode failure created a temporary file")
 
 sync_ok, sync_err = nil, "disk full"
 local unsynced, unsynced_err = Export.write(path, library, "2026-08-17T12:00:00Z")

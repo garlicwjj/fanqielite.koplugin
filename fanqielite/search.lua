@@ -43,7 +43,10 @@ function Search.parse(payload)
     if code == -5 then
         return nil, "番茄官方要求完成安全验证，Kindle 无法显示；请稍后重试或粘贴官网书籍链接"
     end
-    if code ~= 0 then return nil, "番茄官方搜索暂时不可用（代码 " .. tostring(payload.code) .. "）" end
+    if code ~= 0 then
+        local code_text = code and ("（代码 " .. tostring(code) .. "）") or ""
+        return nil, "番茄官方搜索暂时不可用" .. code_text
+    end
     local data = payload.data
     local source = type(data) == "table" and data.search_book_data_list or nil
     if type(source) ~= "table" then return nil, "官方搜索响应缺少结果列表" end

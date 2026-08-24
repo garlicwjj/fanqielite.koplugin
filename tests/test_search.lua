@@ -50,6 +50,14 @@ assert(results[1].author == "刘慈欣")
 local challenged, challenged_err = Search.parse({ code = -5 })
 assert(challenged == nil and challenged_err:find("安全验证", 1, true))
 
+local raw_code = "failure\nFANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
+local unavailable, unavailable_err = Search.parse({ code = raw_code })
+assert(unavailable == nil and unavailable_err:find("暂时不可用", 1, true))
+assert(not unavailable_err:find(raw_code, 1, true), "raw official status code leaked")
+local numeric_failure, numeric_failure_err = Search.parse({ code = "123" })
+assert(numeric_failure == nil and numeric_failure_err:find("代码 123", 1, true),
+    "safe numeric status code was lost")
+
 local numeric_id = {
     code = 0,
     data = { search_book_data_list = {{

@@ -72,7 +72,7 @@ function Export.write(path, library, exported_at)
     if not payload then return nil, payload_err end
     local encoded_ok, contents = pcall(rapidjson.encode, payload)
     if not encoded_ok or type(contents) ~= "string" then
-        return nil, "无法生成书架 JSON：" .. tostring(contents)
+        return nil, "无法生成书架 JSON；未显示本地书架内容"
     end
     if #contents > Import.MAX_BYTES then
         return nil, "导出文件超过 256 KB 安全限制，请减少书架数量后重试"
