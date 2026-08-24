@@ -77,9 +77,51 @@ assert(sync_failed == nil, "fsync failure reported as success")
 assert(sync_failure_err:find("simulated fsync failure", 1, true), "fsync error detail missing")
 assert(Persistence.equal(assert(dofile(path)), candidate), "fsync failure changed existing settings")
 
+local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
+local forbidden_candidates = {
+    { library = { version = 1, books = { { id = "10000000003", sessionid = canary } } } },
+    { library = { version = 1, books = {} }, auth_headers = { Cookie = canary } },
+    { library = { version = 1, books = {} }, qr_payload = canary },
+    { library = { version = 1, books = {} }, login_ticket = canary },
+}
+for index, unsafe_candidate in ipairs(forbidden_candidates) do
+    local unsafe_path = base .. "-unsafe-" .. tostring(index) .. ".lua"
+    local unsafe_written, unsafe_err = Persistence.write(unsafe_path, unsafe_candidate, nil)
+    assert(unsafe_written == nil, "credential-bearing settings were persisted")
+    assert(unsafe_err and unsafe_err:find("账号凭证", 1, true),
+        "credential persistence rejection is not actionable")
+    assert(not unsafe_err:find(canary, 1, true), "credential canary leaked into persistence error")
+    assert(io.open(unsafe_path, "rb") == nil, "credential-bearing settings file was created")
+end
+
+local unsafe_previous_path = base .. "-unsafe-previous.lua"
+local unsafe_previous_written, unsafe_previous_err = Persistence.write(
+    unsafe_previous_path,
+    { library = { version = 1, books = {} } },
+    { library = { version = 1, books = {} }, authorization = canary })
+assert(unsafe_previous_written == nil, "credential-bearing previous settings were backed up")
+assert(unsafe_previous_err and unsafe_previous_err:find("账号凭证", 1, true),
+    "credential-bearing backup rejection is not actionable")
+assert(not unsafe_previous_err:find(canary, 1, true),
+    "credential canary leaked into unsafe backup error")
+assert(io.open(unsafe_previous_path, "rb") == nil, "main file was created after unsafe backup rejection")
+assert(io.open(unsafe_previous_path .. ".old", "rb") == nil,
+    "credential-bearing backup file was created")
+
+local safe_text_path = base .. "-safe-text.lua"
+local safe_text = {
+    library = { version = 1, books = { {
+        id = "10000000004", title = "书名中可以出现 Cookie 和 Token 这些普通文字",
+    } } },
+}
+local safe_text_written, safe_text_err = Persistence.write(safe_text_path, safe_text, nil)
+assert(safe_text_written, "ordinary title text was rejected: " .. tostring(safe_text_err))
+assert(Persistence.equal(assert(dofile(safe_text_path)), safe_text), "safe title text changed")
+
 os.remove(path)
 os.remove(path .. ".old")
 os.remove(path .. ".tmp")
 os.remove(path .. ".old.tmp")
+os.remove(safe_text_path)
 
 print("persistence tests passed")

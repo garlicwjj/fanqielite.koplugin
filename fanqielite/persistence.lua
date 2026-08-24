@@ -3,6 +3,61 @@ local ffiUtil = require("ffi/util")
 
 local Persistence = {}
 
+local sensitive_exact_keys = {
+    account = true,
+    accountid = true,
+    authheader = true,
+    authheaders = true,
+    avatar = true,
+    bearer = true,
+    deviceid = true,
+    header = true,
+    headers = true,
+    login = true,
+    loginticket = true,
+    mobile = true,
+    phone = true,
+    qr = true,
+    sid = true,
+    telephone = true,
+    ticket = true,
+    uid = true,
+    userid = true,
+    username = true,
+}
+
+local sensitive_key_fragments = {
+    "authorization",
+    "cookie",
+    "credential",
+    "csrf",
+    "passport",
+    "password",
+    "qrcode",
+    "qrpayload",
+    "secret",
+    "session",
+    "token",
+}
+
+local function contains_sensitive_field(value, seen)
+    if type(value) ~= "table" then return false end
+    seen = seen or {}
+    if seen[value] then return false end
+    seen[value] = true
+    for key, child in pairs(value) do
+        if type(key) == "string" then
+            local normalized = key:lower():gsub("[^%a%d]", "")
+            if sensitive_exact_keys[normalized] then return true end
+            for _, fragment in ipairs(sensitive_key_fragments) do
+                if normalized:find(fragment, 1, true) then return true end
+            end
+        end
+        if contains_sensitive_field(child, seen) then return true end
+    end
+    return false
+end
+
 function Persistence.copy(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -78,6 +133,9 @@ end
 function Persistence.write(path, candidate, previous)
     if type(path) ~= "string" or path == "" then return nil, "设置文件路径无效" end
     if type(candidate) ~= "table" then return nil, "插件设置必须是对象" end
+    if contains_sensitive_field(candidate) or contains_sensitive_field(previous) then
+        return nil, "拒绝保存账号凭证、二维码会话或授权请求头字段"
+    end
     if previous ~= nil then
         local backup_ok, backup_err = atomic_write(path .. ".old", previous)
         if not backup_ok then return nil, "无法保存上一版设置：" .. tostring(backup_err) end
