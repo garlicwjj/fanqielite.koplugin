@@ -37,9 +37,24 @@ local function valid_id(value)
     return type(value) == "string" and value:match("^%d%d%d%d%d%d%d%d%d%d+$") and value or nil
 end
 
+local function status_code(value)
+    local value_type = type(value)
+    if value_type == "string" then
+        if #value > 11 or not value:match("^%-?%d+$") then return nil end
+        value = tonumber(value)
+    elseif value_type ~= "number" then
+        return nil
+    end
+    if not value or value ~= value or value == math.huge or value == -math.huge
+            or value ~= math.floor(value) or value < -2147483648 or value > 2147483647 then
+        return nil
+    end
+    return value
+end
+
 function Search.parse(payload)
     if type(payload) ~= "table" then return nil, "官方搜索响应不是 JSON 对象" end
-    local code = tonumber(payload.code)
+    local code = status_code(payload.code)
     if code == -5 then
         return nil, "番茄官方要求完成安全验证，Kindle 无法显示；请稍后重试或粘贴官网书籍链接"
     end

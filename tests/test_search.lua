@@ -54,6 +54,28 @@ local raw_code = "failure\nFANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
 local unavailable, unavailable_err = Search.parse({ code = raw_code })
 assert(unavailable == nil and unavailable_err:find("暂时不可用", 1, true))
 assert(not unavailable_err:find(raw_code, 1, true), "raw official status code leaked")
+local status_canary = "FANQIELITE_SEARCH_STATUS_CANARY_701c"
+local status_tostring_calls = 0
+local object_status, object_status_err = Search.parse({
+    code = setmetatable({}, { __tostring = function()
+        status_tostring_calls = status_tostring_calls + 1
+        return status_canary
+    end }),
+})
+assert(object_status == nil and object_status_err:find("暂时不可用", 1, true),
+    "object search status did not fail safely")
+assert(not object_status_err:find(status_canary, 1, true), "object search status leaked raw content")
+assert(status_tostring_calls == 0, "object search status invoked __tostring")
+
+for _, unsafe_code in ipairs({
+    0 / 0, math.huge, -math.huge, 0.5, "1e3", "2147483648", "-2147483649",
+}) do
+    local unsafe_status, unsafe_status_err = Search.parse({ code = unsafe_code })
+    assert(unsafe_status == nil and unsafe_status_err:find("暂时不可用", 1, true),
+        "non-integer search status did not fail safely")
+    assert(not unsafe_status_err:find("代码", 1, true),
+        "non-integer search status was displayed as a trusted code")
+end
 local numeric_failure, numeric_failure_err = Search.parse({ code = "123" })
 assert(numeric_failure == nil and numeric_failure_err:find("代码 123", 1, true),
     "safe numeric status code was lost")
