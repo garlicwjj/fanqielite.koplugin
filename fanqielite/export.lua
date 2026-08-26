@@ -42,7 +42,11 @@ function Export.build(library, exported_at)
         payload.books[#payload.books + 1] = exported_book(book)
     end
     local valid, validation_err = Import.validate(payload)
-    if not valid then return nil, "本地书架无法安全导出：" .. tostring(validation_err) end
+    if not valid then
+        local detail = type(validation_err) == "string" and validation_err
+            or "本地书架校验没有返回可安全显示的错误说明"
+        return nil, "本地书架无法安全导出：" .. detail
+    end
     return payload
 end
 
@@ -55,13 +59,17 @@ local function verify_contents(contents)
 end
 
 local function read_all(path)
-    local file, open_err = io.open(path, "rb")
-    if not file then return nil, "无法重新读取导出文件：" .. tostring(open_err) end
-    local contents, read_err = file:read("*a")
-    local closed, close_err = file:close()
-    if not contents then return nil, "无法重新读取导出文件：" .. tostring(read_err) end
-    if not closed then return nil, "无法关闭导出文件：" .. tostring(close_err) end
+    local open_call, file = pcall(io.open, path, "rb")
+    if not open_call or not file then return nil, "无法重新打开导出文件" end
+    local read_call, contents = pcall(file.read, file, "*a")
+    local close_call, closed = pcall(file.close, file)
+    if not read_call or type(contents) ~= "string" then return nil, "无法重新读取导出文件" end
+    if not close_call or not closed then return nil, "无法关闭导出文件" end
     return contents
+end
+
+local function discard(path)
+    pcall(os.remove, path)
 end
 
 function Export.write(path, library, exported_at)
@@ -79,43 +87,44 @@ function Export.write(path, library, exported_at)
     end
 
     local temporary = path .. ".tmp"
-    local file, open_err = io.open(temporary, "wb")
-    if not file then return nil, "无法创建临时导出文件：" .. tostring(open_err) end
-    local write_call, wrote, write_err = pcall(file.write, file, contents)
-    local sync_call, synced, sync_err = pcall(ffiUtil.fsyncOpenedFile, file)
-    local close_call, closed, close_err = pcall(file.close, file)
+    local open_call, file = pcall(io.open, temporary, "wb")
+    if not open_call or not file then return nil, "无法创建临时导出文件" end
+    local write_call, wrote = pcall(file.write, file, contents)
+    local sync_call, synced = true, nil
+    if write_call and wrote then
+        sync_call, synced = pcall(ffiUtil.fsyncOpenedFile, file)
+    end
+    local close_call, closed = pcall(file.close, file)
     if not write_call or not wrote then
-        os.remove(temporary)
-        return nil, "写入临时导出文件失败：" .. tostring(write_call and write_err or wrote)
+        discard(temporary)
+        return nil, "写入临时导出文件失败"
     end
     if not sync_call or not synced then
-        os.remove(temporary)
-        return nil, "同步临时导出文件失败：" .. tostring(sync_call and sync_err or synced)
+        discard(temporary)
+        return nil, "同步临时导出文件失败"
     end
     if not close_call or not closed then
-        os.remove(temporary)
-        return nil, "完成导出文件写入失败：" .. tostring(close_call and close_err or closed)
+        discard(temporary)
+        return nil, "完成导出文件写入失败"
     end
 
-    local temporary_contents, temporary_err = read_all(temporary)
-    local temporary_books, validation_err
-    if temporary_contents then temporary_books, validation_err = verify_contents(temporary_contents)
-    else validation_err = temporary_err end
-    if not temporary_books then
-        os.remove(temporary)
-        return nil, "写入后的导出文件校验失败：" .. tostring(validation_err)
+    local temporary_contents = read_all(temporary)
+    local verify_call, temporary_books = false, nil
+    if temporary_contents then verify_call, temporary_books = pcall(verify_contents, temporary_contents) end
+    if not verify_call or not temporary_books then
+        discard(temporary)
+        return nil, "写入后的导出文件校验失败"
     end
-    local renamed, rename_err = os.rename(temporary, path)
-    if not renamed then
-        os.remove(temporary)
-        return nil, "无法替换导出文件：" .. tostring(rename_err)
+    local rename_call, renamed = pcall(os.rename, temporary, path)
+    if not rename_call or not renamed then
+        discard(temporary)
+        return nil, "无法替换导出文件"
     end
-    local final_contents, final_err = read_all(path)
-    local final_books, final_validation_err
-    if final_contents then final_books, final_validation_err = verify_contents(final_contents)
-    else final_validation_err = final_err end
-    if not final_books then
-        return nil, "导出文件最终校验失败：" .. tostring(final_validation_err)
+    local final_contents = read_all(path)
+    local final_verify_call, final_books = false, nil
+    if final_contents then final_verify_call, final_books = pcall(verify_contents, final_contents) end
+    if not final_verify_call or not final_books then
+        return nil, "导出文件最终校验失败"
     end
     pcall(ffiUtil.fsyncDirectory, path)
     return #final_books

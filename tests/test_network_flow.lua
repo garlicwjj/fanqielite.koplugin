@@ -35,6 +35,7 @@ local NetworkTask = {
 local Parser = {
     book_id = function(value) return value end,
 }
+local Export = {}
 
 local stubs = {
     ["ui/widget/confirmbox"] = {},
@@ -55,7 +56,7 @@ local stubs = {
     ["ui/uimanager"] = {},
     ["ui/widget/container/widgetcontainer"] = WidgetContainer,
     gettext = function(text) return text end,
-    ["fanqielite.export"] = {},
+    ["fanqielite.export"] = Export,
     ["fanqielite.import"] = {},
     ["fanqielite.library"] = {},
     ["fanqielite.networktask"] = NetworkTask,
@@ -164,5 +165,19 @@ assert(prune_warning:find("清理章节缓存", 1, true), "cache warning has no 
 assert(prune_warning:find("可安全显示", 1, true), "unsafe cache warning did not use fixed detail")
 assert(not prune_warning:find(credential_canary, 1, true), "cache warning leaked raw content")
 assert(cache_tostring_calls == 0, "cache warning invoked __tostring")
+
+local export_tostring_calls = 0
+Export.write = function()
+    return nil, setmetatable({}, { __tostring = function()
+        export_tostring_calls = export_tostring_calls + 1
+        return credential_canary
+    end })
+end
+plugin.library = { books = {} }
+plugin:write_local_export("/mnt/us/fanqielite-bookshelf.json")
+local export_failure = infos[#infos]
+assert(export_failure:find("可安全显示", 1, true), "unsafe export error did not use fixed detail")
+assert(not export_failure:find(credential_canary, 1, true), "export UI leaked raw content")
+assert(export_tostring_calls == 0, "export UI invoked __tostring")
 
 print("network flow tests passed")

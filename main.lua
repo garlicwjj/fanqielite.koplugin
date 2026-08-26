@@ -57,6 +57,13 @@ local function cache_error_detail(detail)
     return detail
 end
 
+local function export_error_detail(detail)
+    if type(detail) ~= "string" or detail == "" then
+        return "导出操作没有返回可安全显示的错误说明"
+    end
+    return detail
+end
+
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
     self.storage = Storage:new()
@@ -385,8 +392,9 @@ function FanqieLite:prepare_local_export()
         return
     end
     local path = self:export_path()
-    local existing = io.open(path, "rb")
-    if existing then existing:close() end
+    local open_call, existing = pcall(io.open, path, "rb")
+    if not open_call then existing = nil end
+    if existing then pcall(existing.close, existing) end
     UIManager:show(ConfirmBox:new{
         text = "将 " .. tostring(#self.library.books) .. " 本书导出到 Kindle 用户盘根目录：\n\n"
             .. Import.FILENAME .. "\n\n"
@@ -401,7 +409,7 @@ end
 function FanqieLite:write_local_export(path)
     local count, export_err = Export.write(path, self.library)
     if not count then
-        self:info("导出失败：\n" .. tostring(export_err)
+        self:info("导出失败：\n" .. export_error_detail(export_err)
             .. "\n\n原有书架和章节缓存没有改变。请检查剩余空间或只读状态后重试。")
         return
     end
