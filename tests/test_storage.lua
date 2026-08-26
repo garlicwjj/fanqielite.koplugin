@@ -6,6 +6,9 @@ local dir_error = nil
 local attribute_error = nil
 local dir_iteration_error = nil
 local modification_times = {}
+local sync_ok, sync_error = true, nil
+local directory_sync_calls = 0
+local directory_sync_error = nil
 local names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml.tmp", "notes.txt", "../escape.xhtml" }
 local canary = "FANQIELITE_CACHE_ERROR_CANARY_91af"
 local error_tostring_calls = 0
@@ -18,6 +21,16 @@ end
 
 package.preload["datastorage"] = function()
     return { getDataDir = function() return "/safe-data" end }
+end
+package.preload["ffi/util"] = function()
+    return {
+        fsyncOpenedFile = function() return sync_ok, sync_error end,
+        fsyncDirectory = function()
+            directory_sync_calls = directory_sync_calls + 1
+            if directory_sync_error then error(directory_sync_error) end
+            return true
+        end,
+    }
 end
 package.preload["libs/libkoreader-lfs"] = function()
     return {
@@ -254,6 +267,29 @@ assert(not create_err:find(canary, 1, true), "cache create error leaked")
 assert(error_tostring_calls == 0, "cache create error invoked __tostring")
 
 temporary_removed = false
+sync_ok, sync_error = nil, unsafe_error()
+io.open = function()
+    return {
+        write = function() return true end,
+        close = function() return true end,
+    }
+end
+os.remove = function(path)
+    if path:match("%.tmp$") then temporary_removed = true end
+    return true
+end
+os.rename = function() error("rename must not run after sync failure") end
+local sync_failed, sync_failure_err = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+assert(sync_failed == nil, "cache sync failure reported as success")
+assert(sync_failure_err:find("同步章节缓存失败", 1, true), "cache sync failure stage missing")
+assert(not sync_failure_err:find(canary, 1, true), "cache sync error leaked")
+assert(error_tostring_calls == 0, "cache sync error invoked __tostring")
+assert(temporary_removed, "cache sync failure left temporary file")
+sync_ok, sync_error = true, nil
+os.rename = original_rename
+
+temporary_removed = false
 io.open = function()
     return {
         write = function() error(unsafe_error()) end,
@@ -273,9 +309,44 @@ assert(error_tostring_calls == 0, "cache write error invoked __tostring")
 assert(temporary_removed, "cache write failure left temporary file")
 
 temporary_removed = false
+local verify_open_count = 0
 io.open = function()
+    verify_open_count = verify_open_count + 1
+    if verify_open_count == 1 then
+        return {
+            write = function() return true end,
+            close = function() return true end,
+        }
+    end
     return {
-        write = function() return true end,
+        read = function() return valid_xhtml:gsub("</body></html>$", "") end,
+        close = function() return true end,
+    }
+end
+os.remove = function(path)
+    if path:match("%.tmp$") then temporary_removed = true end
+    return true
+end
+os.rename = function() error("rename must not run after verification failure") end
+local verify_failed, verify_err = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+assert(verify_failed == nil, "invalid temporary cache reported as success")
+assert(verify_err:find("写入后的章节缓存校验失败", 1, true), "cache verification stage missing")
+assert(temporary_removed, "cache verification failure left temporary file")
+os.rename = original_rename
+
+temporary_removed = false
+local rename_open_count = 0
+io.open = function()
+    rename_open_count = rename_open_count + 1
+    if rename_open_count == 1 then
+        return {
+            write = function() return true end,
+            close = function() return true end,
+        }
+    end
+    return {
+        read = function() return valid_xhtml end,
         close = function() return true end,
     }
 end
@@ -296,7 +367,15 @@ os.rename = original_rename
 os.remove = original_remove
 
 local original_prune = storage.prune
+local success_open_count = 0
 io.open = function()
+    success_open_count = success_open_count + 1
+    if success_open_count > 1 then
+        return {
+            read = function() return valid_xhtml end,
+            close = function() return true end,
+        }
+    end
     return {
         write = function() return true end,
         close = function() return true end,
@@ -308,8 +387,10 @@ storage.prune = function(_, _, _, protected_path)
     write_protected_path = protected_path
     return 0, "2 个旧缓存无法删除"
 end
+directory_sync_error = unsafe_error()
 local safe_path, safe_write_err, prune_warning = storage:write_chapter(
     "7633875868615461950", "10000000001", valid_xhtml)
+directory_sync_error = nil
 storage.prune = original_prune
 io.open = original_open
 os.rename = original_rename
@@ -320,5 +401,7 @@ assert(safe_write_err == nil, "successful cache write returned an error")
 assert(write_protected_path == safe_path, "newly written cache was not protected during eviction")
 assert(prune_warning and prune_warning:find("2 个旧缓存无法删除", 1, true),
     "cache eviction warning was hidden after successful write")
+assert(directory_sync_calls == 1, "cache directory sync was not attempted after rename")
+assert(error_tostring_calls == 0, "directory sync error invoked __tostring")
 
 print("storage tests passed")
