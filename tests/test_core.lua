@@ -33,6 +33,27 @@ local wrong_book, wrong_book_err = Parser.book_from_state({ page = {
 equal(wrong_book, nil, "mismatched book id accepted")
 assert(wrong_book_err:find("不一致", 1, true), "mismatched book error missing")
 
+local field_tostring_calls = 0
+local field_canary = "FANQIELITE_PARSER_FIELD_CANARY_85ae"
+local unsafe_field = setmetatable({}, { __tostring = function()
+    field_tostring_calls = field_tostring_calls + 1
+    return field_canary
+end })
+local unsafe_title, unsafe_title_err = Parser.book_from_state({ page = {
+    bookId = "10000000003", bookName = unsafe_field,
+} }, "10000000003")
+equal(unsafe_title, nil, "object book title accepted")
+assert(unsafe_title_err:find("书名格式无效", 1, true), "object book title error missing")
+equal(field_tostring_calls, 0, "book title object invoked __tostring")
+
+local unsafe_content, unsafe_content_err = Parser.chapter_from_state({ reader = { chapterData = {
+    itemId = "10000000004", title = "对象正文", content = unsafe_field,
+    chapterWordNumber = 600,
+} } }, "10000000004")
+equal(unsafe_content, nil, "object chapter content accepted")
+assert(unsafe_content_err:find("正文格式", 1, true), "object chapter content error missing")
+equal(field_tostring_calls, 0, "chapter content object invoked __tostring")
+
 local decoded, stats = Pua.decode("\238\143\168\238\143\169\238\143\170")
 equal(decoded, "D在主", "PUA mapping")
 equal(stats.pua, 3, "PUA count")
