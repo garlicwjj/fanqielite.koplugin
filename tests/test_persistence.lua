@@ -17,7 +17,13 @@ local function serialize(value)
     return table.concat(output)
 end
 
-package.preload["dump"] = function() return serialize end
+local dump_override
+package.preload["dump"] = function()
+    return function(value)
+        if dump_override ~= nil then return dump_override end
+        return serialize(value)
+    end
+end
 
 local sync_ok, sync_err = true, nil
 package.preload["ffi/util"] = function()
@@ -47,11 +53,19 @@ assert(Persistence.equal(backup, previous), "backup does not contain previous st
 local original_open = io.open
 local original_rename = os.rename
 local main_rename_called = false
+local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
+local error_tostring_calls = 0
+local function unsafe_error()
+    return setmetatable({}, { __tostring = function()
+        error_tostring_calls = error_tostring_calls + 1
+        return canary
+    end })
+end
 io.open = function(filename, mode)
     if filename == path .. ".tmp" and mode == "wb" then
         return {
             write = function() return true end,
-            close = function() return nil, "simulated disk full" end,
+            close = function() return nil, unsafe_error() end,
         }
     end
     return original_open(filename, mode)
@@ -66,18 +80,58 @@ io.open = original_open
 os.rename = original_rename
 
 assert(failed == nil, "close-time failure reported as success")
-assert(failure_err:find("simulated disk full", 1, true), "close error detail missing")
+assert(failure_err:find("完成设置写入失败", 1, true), "close failure stage missing")
+assert(not failure_err:find(canary, 1, true), "close error leaked raw content")
+assert(error_tostring_calls == 0, "close error invoked __tostring")
 assert(not main_rename_called, "main settings renamed after failed close")
 assert(Persistence.equal(assert(dofile(path)), candidate), "failed write changed existing settings")
+assert(original_open(path .. ".tmp", "rb") == nil, "close failure left main temporary file")
 
-sync_ok, sync_err = false, "simulated fsync failure"
+sync_ok, sync_err = false, unsafe_error()
 local sync_failed, sync_failure_err = Persistence.write(path, previous, candidate)
 sync_ok, sync_err = true, nil
 assert(sync_failed == nil, "fsync failure reported as success")
-assert(sync_failure_err:find("simulated fsync failure", 1, true), "fsync error detail missing")
+assert(sync_failure_err:find("同步临时设置失败", 1, true), "fsync failure stage missing")
+assert(not sync_failure_err:find(canary, 1, true), "fsync error leaked raw content")
+assert(error_tostring_calls == 0, "fsync error invoked __tostring")
 assert(Persistence.equal(assert(dofile(path)), candidate), "fsync failure changed existing settings")
+assert(original_open(path .. ".old.tmp", "rb") == nil, "fsync failure left backup temporary file")
 
-local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
+dump_override = unsafe_error()
+local encode_failed, encode_err = Persistence.write(base .. "-encode.lua", candidate, nil)
+dump_override = nil
+assert(encode_failed == nil, "non-string serialization reported as success")
+assert(encode_err:find("无法序列化", 1, true), "serialization failure stage missing")
+assert(not encode_err:find(canary, 1, true), "serialization object leaked raw content")
+assert(error_tostring_calls == 0, "serialization object invoked __tostring")
+
+local open_path = base .. "-open.lua"
+io.open = function(filename, mode)
+    if filename == open_path .. ".tmp" and mode == "wb" then error(unsafe_error()) end
+    return original_open(filename, mode)
+end
+local open_failed, open_failure_err = Persistence.write(open_path, candidate, nil)
+io.open = original_open
+assert(open_failed == nil, "open failure reported as success")
+assert(open_failure_err:find("无法创建临时设置文件", 1, true), "open failure stage missing")
+assert(not open_failure_err:find(canary, 1, true), "open error leaked raw content")
+assert(error_tostring_calls == 0, "open error invoked __tostring")
+assert(original_open(open_path, "rb") == nil, "open failure created settings file")
+
+local rename_path = base .. "-rename.lua"
+os.rename = function(source, target)
+    if target == rename_path then error(unsafe_error()) end
+    return original_rename(source, target)
+end
+local rename_failed, rename_failure_err = Persistence.write(rename_path, candidate, nil)
+os.rename = original_rename
+assert(rename_failed == nil, "rename failure reported as success")
+assert(rename_failure_err:find("无法原子替换设置文件", 1, true), "rename failure stage missing")
+assert(not rename_failure_err:find(canary, 1, true), "rename error leaked raw content")
+assert(error_tostring_calls == 0, "rename error invoked __tostring")
+assert(original_open(rename_path, "rb") == nil, "rename failure created main settings file")
+assert(original_open(rename_path .. ".tmp", "rb") == nil, "rename failure left temporary file")
+
 local forbidden_candidates = {
     { library = { version = 1, books = { { id = "10000000003", sessionid = canary } } } },
     { library = { version = 1, books = {} }, auth_headers = { Cookie = canary } },
@@ -123,5 +177,11 @@ os.remove(path .. ".old")
 os.remove(path .. ".tmp")
 os.remove(path .. ".old.tmp")
 os.remove(safe_text_path)
+os.remove(open_path)
+os.remove(open_path .. ".tmp")
+os.remove(rename_path)
+os.remove(rename_path .. ".tmp")
+os.remove(base .. "-encode.lua")
+os.remove(base .. "-encode.lua.tmp")
 
 print("persistence tests passed")
