@@ -1,4 +1,5 @@
 local DataStorage = require("datastorage")
+local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
 
 local Storage = {}
@@ -65,6 +66,16 @@ local function remove_file(path)
     return called and removed and true or false
 end
 
+local function verify_chapter_file(path)
+    local open_call, file = pcall(io.open, path, "rb")
+    if not open_call or not file then return nil, "无法打开章节缓存" end
+    local read_call, contents = pcall(file.read, file, Storage.MAX_CHAPTER_BYTES + 1)
+    local close_call, closed = pcall(file.close, file)
+    if not read_call or type(contents) ~= "string" then return nil, "无法读取章节缓存" end
+    if not close_call or not closed then return nil, "无法关闭章节缓存" end
+    return Storage.validate_chapter_contents(contents)
+end
+
 function Storage:new()
     local root = DataStorage:getDataDir() .. "/fanqielite"
     mkdir(root)
@@ -91,20 +102,36 @@ function Storage:write_chapter(book_id, item_id, contents)
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时缓存" end
     local write_call, ok = pcall(file.write, file, contents)
+    local sync_call, synced = true, nil
+    if write_call and ok then
+        sync_call, synced = pcall(ffiUtil.fsyncOpenedFile, file)
+    end
     local close_call, closed = pcall(file.close, file)
     if not write_call or not ok then
         discard(temporary)
         return nil, "写入缓存失败"
     end
+    if not sync_call or not synced then
+        discard(temporary)
+        return nil, "同步章节缓存失败"
+    end
     if not close_call or not closed then
         discard(temporary)
         return nil, "完成缓存写入失败"
+    end
+    local verified = verify_chapter_file(temporary)
+    if not verified then
+        discard(temporary)
+        return nil, "写入后的章节缓存校验失败"
     end
     local rename_call, renamed = pcall(os.rename, temporary, path)
     if not rename_call or not renamed then
         discard(temporary)
         return nil, "无法替换章节缓存"
     end
+    -- File contents were synced before rename. Directory sync is best-effort
+    -- because failure is only observable after the atomic replacement.
+    pcall(ffiUtil.fsyncDirectory, path)
     local _, prune_err = self:prune(book_id, 12, path)
     return path, nil, prune_err
 end
@@ -119,13 +146,7 @@ function Storage:cached_chapter(book_id, item_id)
     if not attributes_call then return nil, "无法读取缓存状态" end
     if mode == nil then return nil end
     if mode ~= "file" then return nil, "缓存路径不是普通文件" end
-    local open_call, file = pcall(io.open, path, "rb")
-    if not open_call or not file then return nil, "无法打开章节缓存" end
-    local read_call, contents = pcall(file.read, file, Storage.MAX_CHAPTER_BYTES + 1)
-    local close_call, closed = pcall(file.close, file)
-    if not read_call or type(contents) ~= "string" then return nil, "无法读取章节缓存" end
-    if not close_call or not closed then return nil, "无法关闭章节缓存" end
-    local valid, validation_err = Storage.validate_chapter_contents(contents)
+    local valid, validation_err = verify_chapter_file(path)
     if not valid then return nil, validation_err end
     return path
 end
