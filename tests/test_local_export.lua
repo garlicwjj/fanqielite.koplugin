@@ -4,6 +4,14 @@ local encoded_payload
 local encoded_contents = "{\"format\":\"fanqielite-bookshelf\"}"
 local encode_error
 local encode_tostring_calls = 0
+local filesystem_tostring_calls = 0
+local filesystem_canary = "FANQIELITE_EXPORT_ERROR_CANARY_63bd"
+local function unsafe_filesystem_error()
+    return setmetatable({}, { __tostring = function()
+        filesystem_tostring_calls = filesystem_tostring_calls + 1
+        return filesystem_canary
+    end })
+end
 local decode_handler
 local sync_ok, sync_err = true, nil
 package.preload["ffi/util"] = function()
@@ -94,10 +102,12 @@ assert(not encode_failed_err:find("FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY", 1, t
 assert(encode_tostring_calls == 0, "export stringified the raw encoder exception")
 assert(io.open(path .. ".tmp", "rb") == nil, "encode failure created a temporary file")
 
-sync_ok, sync_err = nil, "disk full"
+sync_ok, sync_err = nil, unsafe_filesystem_error()
 local unsynced, unsynced_err = Export.write(path, library, "2026-08-17T12:00:00Z")
 sync_ok, sync_err = true, nil
 assert(unsynced == nil and unsynced_err:find("同步临时导出文件失败", 1, true))
+assert(not unsynced_err:find(filesystem_canary, 1, true), "export sync leaked raw content")
+assert(filesystem_tostring_calls == 0, "export sync invoked __tostring")
 local after_sync_failure = assert(io.open(path, "rb"))
 assert(after_sync_failure:read("*a") == encoded_contents, "sync failure replaced old export")
 after_sync_failure:close()
@@ -112,14 +122,81 @@ assert(after_oversized:read("*a") == encoded_contents, "oversized export replace
 after_oversized:close()
 
 local real_rename = os.rename
-os.rename = function() return nil, "read-only filesystem" end
+os.rename = function() error(unsafe_filesystem_error()) end
 local failed, failed_err = Export.write(path, library, "2026-08-17T12:00:00Z")
 os.rename = real_rename
 assert(failed == nil and failed_err:find("无法替换导出文件", 1, true))
+assert(not failed_err:find(filesystem_canary, 1, true), "export rename leaked raw content")
+assert(filesystem_tostring_calls == 0, "export rename invoked __tostring")
 local preserved = assert(io.open(path, "rb"))
 assert(preserved:read("*a") == encoded_contents, "failed export replaced old file")
 preserved:close()
 assert(io.open(path .. ".tmp", "rb") == nil, "failed export left a temporary file")
+
+local real_open = io.open
+io.open = function(target, mode)
+    if target == path .. ".tmp" and mode == "wb" then error(unsafe_filesystem_error()) end
+    return real_open(target, mode)
+end
+local create_failed, create_err = Export.write(path, library, "2026-08-17T12:00:00Z")
+io.open = real_open
+assert(create_failed == nil and create_err:find("无法创建临时导出文件", 1, true))
+assert(not create_err:find(filesystem_canary, 1, true), "export create leaked raw content")
+assert(filesystem_tostring_calls == 0, "export create invoked __tostring")
+
+io.open = function(target, mode)
+    if target == path .. ".tmp" and mode == "wb" then
+        return {
+            write = function() error(unsafe_filesystem_error()) end,
+            close = function() return true end,
+        }
+    end
+    return real_open(target, mode)
+end
+local write_failed, write_err = Export.write(path, library, "2026-08-17T12:00:00Z")
+io.open = real_open
+assert(write_failed == nil and write_err:find("写入临时导出文件失败", 1, true))
+assert(not write_err:find(filesystem_canary, 1, true), "export write leaked raw content")
+assert(filesystem_tostring_calls == 0, "export write invoked __tostring")
+
+local real_remove = os.remove
+io.open = function(target, mode)
+    if target == path .. ".tmp" and mode == "wb" then
+        return {
+            write = function() return true end,
+            close = function() return nil, unsafe_filesystem_error() end,
+        }
+    end
+    return real_open(target, mode)
+end
+os.remove = function() error(unsafe_filesystem_error()) end
+local close_failed, close_err = Export.write(path, library, "2026-08-17T12:00:00Z")
+io.open = real_open
+os.remove = real_remove
+assert(close_failed == nil and close_err:find("完成导出文件写入失败", 1, true))
+assert(not close_err:find(filesystem_canary, 1, true), "export close leaked raw content")
+assert(filesystem_tostring_calls == 0, "export close or cleanup invoked __tostring")
+
+io.open = function(target, mode)
+    if target == path .. ".tmp" and mode == "wb" then
+        return {
+            write = function() return true end,
+            close = function() return true end,
+        }
+    end
+    if target == path .. ".tmp" and mode == "rb" then
+        return {
+            read = function() error(unsafe_filesystem_error()) end,
+            close = function() return true end,
+        }
+    end
+    return real_open(target, mode)
+end
+local read_failed, read_err = Export.write(path, library, "2026-08-17T12:00:00Z")
+io.open = real_open
+assert(read_failed == nil and read_err:find("写入后的导出文件校验失败", 1, true))
+assert(not read_err:find(filesystem_canary, 1, true), "export reread leaked raw content")
+assert(filesystem_tostring_calls == 0, "export reread invoked __tostring")
 
 local wrong, wrong_err = Export.write("/tmp/books.json", library, "2026-08-17T12:00:00Z")
 assert(wrong == nil and wrong_err:find(Import.FILENAME, 1, true))
