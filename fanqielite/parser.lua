@@ -10,10 +10,22 @@ local function valid_id(value)
     return type(value) == "string" and value:match("^%d%d%d%d%d%d%d%d%d%d+$") ~= nil
 end
 
-local function optional_text(value)
+local function optional_text(value, label, maximum)
     if value == nil then return "" end
-    if type(value) ~= "string" then return nil end
+    if type(value) ~= "string" then return nil, label .. "格式无效" end
+    if #value > maximum then return nil, label .. "过长" end
+    if value:find("[%z\1-\31\127]") then return nil, label .. "包含控制字符" end
     return trim(value)
+end
+
+local function valid_content_controls(value)
+    for index = 1, #value do
+        local byte = value:byte(index)
+        if (byte < 32 and byte ~= 9 and byte ~= 10 and byte ~= 13) or byte == 127 then
+            return false
+        end
+    end
+    return true
 end
 
 local function nonnegative_integer(value, maximum)
@@ -150,10 +162,10 @@ function Parser.book_from_state(state, fallback_id)
     if fallback_id and (not valid_id(fallback_id) or id ~= fallback_id) then
         return nil, "书籍 ID 与请求不一致"
     end
-    local title = optional_text(page.bookName)
-    if title == nil then return nil, "书籍书名格式无效" end
-    local author = optional_text(page.author)
-    if author == nil then return nil, "书籍作者格式无效" end
+    local title, title_err = optional_text(page.bookName, "书籍书名", 300)
+    if title == nil then return nil, title_err end
+    local author, author_err = optional_text(page.author, "书籍作者", 150)
+    if author == nil then return nil, author_err end
     return {
         id = id,
         title = title ~= "" and title or ("番茄书籍 " .. id),
@@ -166,8 +178,8 @@ local function add_chapter(output, seen, chapter, fallback_index)
     local id = chapter.itemId ~= nil and chapter.itemId or chapter.item_id
     if not valid_id(id) then return nil, "目录包含无效章节 ID" end
     if seen[id] then return nil, "目录包含重复章节 ID" end
-    local title = optional_text(chapter.title)
-    if title == nil then return nil, "目录包含无效章节标题" end
+    local title, title_err = optional_text(chapter.title, "目录章节标题", 300)
+    if title == nil then return nil, title_err end
     local raw_index = chapter.index ~= nil and chapter.index or chapter.order
     local chapter_index = fallback_index
     if raw_index ~= nil then
@@ -261,8 +273,12 @@ function Parser.chapter_from_state(state, expected_item_id)
         return nil, "该章节需要在番茄官方客户端中解锁"
     end
     if type(chapter.content) ~= "string" then return nil, "章节正文格式无效" end
-    local title = optional_text(chapter.title)
-    if title == nil then return nil, "章节标题格式无效" end
+    if #chapter.content > 1024 * 1024 then return nil, "章节正文过大" end
+    if not valid_content_controls(chapter.content) then
+        return nil, "章节正文包含非法控制字符"
+    end
+    local title, title_err = optional_text(chapter.title, "章节标题", 300)
+    if title == nil then return nil, title_err end
     local claimed = 0
     if chapter.chapterWordNumber ~= nil then
         claimed = nonnegative_integer(chapter.chapterWordNumber, 10000000)
