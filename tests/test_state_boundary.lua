@@ -16,7 +16,12 @@ local Library = {
             if book.id == book_id then return book end
         end
     end,
+    load = function(library) return copy(library) end,
 }
+
+local persistence_error
+local persistence_tostring_calls = 0
+local plugin
 
 local WidgetContainer = {}
 function WidgetContainer:extend(definition)
@@ -47,7 +52,11 @@ local stubs = {
     ["fanqielite.library"] = Library,
     ["fanqielite.networktask"] = {},
     ["fanqielite.parser"] = {},
-    ["fanqielite.persistence"] = { copy = copy },
+    ["fanqielite.persistence"] = {
+        copy = copy,
+        equal = function() return false end,
+        write = function() return nil, persistence_error end,
+    },
     ["fanqielite.search"] = {},
     ["fanqielite.storage"] = {},
 }
@@ -58,10 +67,13 @@ end
 
 local FanqieLite = assert(loadfile("main.lua"))()
 local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
-local plugin = setmetatable({
+plugin = setmetatable({
     settings = {
+        file = "/mock/fanqielite.lua",
+        data = {},
         readSetting = function(_, key)
             if key == "import_path" then return "/mnt/us" end
+            return plugin and plugin.settings.data[key]
         end,
     },
     library = {
@@ -107,5 +119,20 @@ local function inspect(value, seen)
 end
 inspect(state)
 assert(plugin.ephemeral_session.cookie == canary, "state projection mutated the in-memory session")
+
+plugin.persisted_settings = copy(state)
+plugin.settings.data = copy(state)
+plugin.library.books[1].title = "未保存的新标题"
+persistence_error = setmetatable({}, { __tostring = function()
+    persistence_tostring_calls = persistence_tostring_calls + 1
+    return canary
+end })
+local saved, save_err = plugin:save_state(true)
+assert(saved == nil, "unsafe persistence error reported as success")
+assert(save_err:find("无法安全保存插件设置", 1, true), "save failure heading missing")
+assert(save_err:find("可安全显示", 1, true), "unsafe persistence error did not use fixed detail")
+assert(not save_err:find(canary, 1, true), "unsafe persistence error leaked raw content")
+assert(persistence_tostring_calls == 0, "unsafe persistence error invoked __tostring")
+assert(plugin.library.books[1].title == "本地书籍", "failed save did not restore persisted library")
 
 print("state boundary tests passed")

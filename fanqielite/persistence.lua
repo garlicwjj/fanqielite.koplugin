@@ -92,35 +92,41 @@ local function verify(path, expected)
     return true
 end
 
+local function discard(path)
+    pcall(os.remove, path)
+end
+
 local function atomic_write(path, data)
     local serialized_ok, serialized = pcall(dump, data, nil, true)
-    if not serialized_ok then return nil, "无法序列化插件设置" end
+    if not serialized_ok or type(serialized) ~= "string" then
+        return nil, "无法序列化插件设置"
+    end
     local temporary = path .. ".tmp"
-    local file, open_err = io.open(temporary, "wb")
-    if not file then return nil, "无法创建临时设置文件：" .. tostring(open_err) end
+    local open_call, file = pcall(io.open, temporary, "wb")
+    if not open_call or not file then return nil, "无法创建临时设置文件" end
 
-    local write_call, wrote, write_err = pcall(file.write, file, "return " .. serialized .. "\n")
-    local sync_call, synced, sync_err = pcall(ffiUtil.fsyncOpenedFile, file)
-    local close_call, closed, close_err = pcall(file.close, file)
+    local write_call, wrote = pcall(file.write, file, "return " .. serialized .. "\n")
+    local sync_call, synced = pcall(ffiUtil.fsyncOpenedFile, file)
+    local close_call, closed = pcall(file.close, file)
     if not write_call or not wrote then
-        os.remove(temporary)
-        return nil, "写入临时设置失败：" .. tostring(write_call and write_err or wrote)
+        discard(temporary)
+        return nil, "写入临时设置失败"
     end
     if not sync_call or not synced then
-        os.remove(temporary)
-        return nil, "同步临时设置失败：" .. tostring(sync_call and sync_err or synced)
+        discard(temporary)
+        return nil, "同步临时设置失败"
     end
     if not close_call or not closed then
-        os.remove(temporary)
-        return nil, "完成设置写入失败：" .. tostring(close_call and close_err or closed)
+        discard(temporary)
+        return nil, "完成设置写入失败"
     end
     local valid, validation_err = verify(temporary, data)
-    if not valid then os.remove(temporary); return nil, validation_err end
+    if not valid then discard(temporary); return nil, validation_err end
 
-    local renamed, rename_err = os.rename(temporary, path)
-    if not renamed then
-        os.remove(temporary)
-        return nil, "无法原子替换设置文件：" .. tostring(rename_err)
+    local rename_call, renamed = pcall(os.rename, temporary, path)
+    if not rename_call or not renamed then
+        discard(temporary)
+        return nil, "无法原子替换设置文件"
     end
     local valid, validation_err = verify(path, data)
     if not valid then return nil, validation_err end
@@ -138,7 +144,10 @@ function Persistence.write(path, candidate, previous)
     end
     if previous ~= nil then
         local backup_ok, backup_err = atomic_write(path .. ".old", previous)
-        if not backup_ok then return nil, "无法保存上一版设置：" .. tostring(backup_err) end
+        if not backup_ok then
+            local detail = type(backup_err) == "string" and backup_err or "备份写入失败"
+            return nil, "无法保存上一版设置：" .. detail .. "；本次设置未写入"
+        end
     end
     return atomic_write(path, candidate)
 end

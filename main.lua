@@ -173,7 +173,9 @@ function FanqieLite:save_state(force)
         self.settings.file, candidate, self.persisted_settings)
     if not saved then
         self:restore_persisted_state()
-        return nil, "无法安全保存插件设置：" .. tostring(save_err)
+        local detail = type(save_err) == "string" and save_err
+            or "设置写入没有返回可安全显示的错误说明"
+        return nil, "无法安全保存插件设置：" .. detail
             .. "\n\n本次书架或阅读进度变更已撤销，上一版设置仍被保留。"
             .. "请检查 Kindle 剩余空间或只读状态后重试。"
     end
