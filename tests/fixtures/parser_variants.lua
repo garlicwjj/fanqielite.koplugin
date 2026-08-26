@@ -24,6 +24,21 @@ return {
             request_id = "70000000004",
             error_contains = "不一致",
         },
+        {
+            name = "numeric book id",
+            state = { page = { bookId = 70000000005, bookName = "数值 ID" } },
+            error_contains = "ID 无效",
+        },
+        {
+            name = "object book title",
+            state = { page = { bookId = "70000000006", bookName = {} } },
+            error_contains = "书名格式无效",
+        },
+        {
+            name = "object book author",
+            state = { page = { bookId = "70000000007", bookName = "合法书名", author = {} } },
+            error_contains = "作者格式无效",
+        },
     },
     directories = {
         {
@@ -76,6 +91,27 @@ return {
             name = "wrong flat list type",
             payload = { data = { chapterList = "not-a-list" } },
             error_contains = "结构无效",
+        },
+        {
+            name = "numeric chapter id",
+            payload = { data = { chapterList = {
+                { itemId = 71000000010, title = "数值 ID" },
+            } } },
+            error_contains = "章节 ID",
+        },
+        {
+            name = "object chapter title",
+            payload = { data = { chapterList = {
+                { itemId = "71000000011", title = {} },
+            } } },
+            error_contains = "章节标题",
+        },
+        {
+            name = "object chapter index",
+            payload = { data = { chapterList = {
+                { itemId = "71000000012", title = "合法标题", index = {} },
+            } } },
+            error_contains = "章节序号",
         },
     },
     chapters = {
@@ -167,6 +203,60 @@ return {
             item_id = "72000000008",
             missing_reader = true,
             error_contains = "没有章节数据",
+        },
+        {
+            name = "numeric chapter item id",
+            item_id = "72000000012",
+            chapter = {
+                itemId = 72000000012, title = "数值 ID",
+                content = synthetic_body(600), chapterWordNumber = 600,
+            },
+            error_contains = "章节 ID",
+        },
+        {
+            name = "object chapter title",
+            item_id = "72000000013",
+            chapter = {
+                itemId = "72000000013", title = {},
+                content = synthetic_body(600), chapterWordNumber = 600,
+            },
+            error_contains = "章节标题",
+        },
+        {
+            name = "object chapter content",
+            item_id = "72000000014",
+            chapter = {
+                itemId = "72000000014", title = "正文类型变化",
+                content = {}, chapterWordNumber = 600,
+            },
+            error_contains = "正文格式",
+        },
+        {
+            name = "unknown paywall state",
+            item_id = "72000000015",
+            chapter = {
+                itemId = "72000000015", title = "未知权限",
+                content = synthetic_body(600), chapterWordNumber = 600, needPay = {},
+            },
+            error_contains = "权限状态",
+        },
+        {
+            name = "unknown lock state",
+            item_id = "72000000017",
+            chapter = {
+                itemId = "72000000017", title = "未知锁定状态",
+                content = synthetic_body(600), chapterWordNumber = 600, isChapterLock = 2,
+            },
+            error_contains = "权限状态",
+        },
+        {
+            name = "object word count",
+            item_id = "72000000016",
+            chapter = {
+                itemId = "72000000016", title = "字数类型变化",
+                content = synthetic_body(600), chapterWordNumber = {},
+            },
+            error_contains = "字数格式",
         },
     },
 }

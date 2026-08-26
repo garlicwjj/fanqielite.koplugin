@@ -3,7 +3,41 @@ local Pua = require("fanqielite.pua")
 local Parser = {}
 
 local function trim(value)
-    return tostring(value or ""):match("^%s*(.-)%s*$")
+    return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+end
+
+local function valid_id(value)
+    return type(value) == "string" and value:match("^%d%d%d%d%d%d%d%d%d%d+$") ~= nil
+end
+
+local function optional_text(value)
+    if value == nil then return "" end
+    if type(value) ~= "string" then return nil end
+    return trim(value)
+end
+
+local function nonnegative_integer(value, maximum)
+    if type(value) == "string" then
+        if #value > 10 or not value:match("^%d+$") then return nil end
+        value = tonumber(value)
+    elseif type(value) ~= "number" then
+        return nil
+    end
+    if not value or value ~= value or value == math.huge or value == -math.huge
+            or value ~= math.floor(value) or value < 0 or value > maximum then
+        return nil
+    end
+    return value
+end
+
+local function boolean_flag(value)
+    if value == nil or value == false or value == 0 or value == "0" or value == "false" then
+        return false, true
+    end
+    if value == true or value == 1 or value == "1" or value == "true" then
+        return true, true
+    end
+    return nil, false
 end
 
 local function valid_xml_codepoint(value)
@@ -111,26 +145,39 @@ end
 function Parser.book_from_state(state, fallback_id)
     local page = type(state) == "table" and state.page or nil
     if type(page) ~= "table" then return nil, "页面没有书籍信息" end
-    local id = tostring(page.bookId or fallback_id or "")
-    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "书籍 ID 无效" end
-    if fallback_id and id ~= tostring(fallback_id) then return nil, "书籍 ID 与请求不一致" end
+    local id = page.bookId ~= nil and page.bookId or fallback_id
+    if not valid_id(id) then return nil, "书籍 ID 无效" end
+    if fallback_id and (not valid_id(fallback_id) or id ~= fallback_id) then
+        return nil, "书籍 ID 与请求不一致"
+    end
+    local title = optional_text(page.bookName)
+    if title == nil then return nil, "书籍书名格式无效" end
+    local author = optional_text(page.author)
+    if author == nil then return nil, "书籍作者格式无效" end
     return {
         id = id,
-        title = trim(page.bookName) ~= "" and trim(page.bookName) or ("番茄书籍 " .. id),
-        author = trim(page.author),
+        title = title ~= "" and title or ("番茄书籍 " .. id),
+        author = author,
     }
 end
 
 local function add_chapter(output, seen, chapter, fallback_index)
     if type(chapter) ~= "table" then return nil, "目录包含无效章节" end
-    local id = tostring(chapter.itemId or chapter.item_id or "")
-    if not id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "目录包含无效章节 ID" end
+    local id = chapter.itemId ~= nil and chapter.itemId or chapter.item_id
+    if not valid_id(id) then return nil, "目录包含无效章节 ID" end
     if seen[id] then return nil, "目录包含重复章节 ID" end
+    local title = optional_text(chapter.title)
+    if title == nil then return nil, "目录包含无效章节标题" end
+    local raw_index = chapter.index ~= nil and chapter.index or chapter.order
+    local chapter_index = fallback_index
+    if raw_index ~= nil then
+        chapter_index = nonnegative_integer(raw_index, 2147483647)
+        if not chapter_index then return nil, "目录包含无效章节序号" end
+    end
     output[#output + 1] = {
         id = id,
-        title = trim(chapter.title) ~= "" and trim(chapter.title)
-            or ("第 " .. tostring(fallback_index) .. " 章"),
-        index = tonumber(chapter.index or chapter.order) or fallback_index,
+        title = title ~= "" and title or ("第 " .. tostring(fallback_index) .. " 章"),
+        index = chapter_index,
     }
     seen[id] = true
     return true
@@ -202,18 +249,26 @@ function Parser.chapter_from_state(state, expected_item_id)
     local reader = type(state) == "table" and state.reader or nil
     local chapter = type(reader) == "table" and reader.chapterData or nil
     if type(chapter) ~= "table" then return nil, "页面没有章节数据" end
-    local item_id = tostring(chapter.itemId or "")
-    if not item_id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return nil, "章节 ID 无效" end
-    if expected_item_id and item_id ~= tostring(expected_item_id) then
+    local item_id = chapter.itemId
+    if not valid_id(item_id) then return nil, "章节 ID 无效" end
+    if expected_item_id and (not valid_id(expected_item_id) or item_id ~= expected_item_id) then
         return nil, "章节 ID 与请求不一致"
     end
-    local function enabled(value)
-        return value == true or value == 1 or value == "1" or value == "true"
-    end
-    if enabled(chapter.needPay) or enabled(chapter.isChapterLock) then
+    local need_pay, pay_valid = boolean_flag(chapter.needPay)
+    local chapter_locked, lock_valid = boolean_flag(chapter.isChapterLock)
+    if not pay_valid or not lock_valid then return nil, "章节权限状态无效，已拒绝读取" end
+    if need_pay or chapter_locked then
         return nil, "该章节需要在番茄官方客户端中解锁"
     end
-    local decoded, stats = Pua.decode(chapter.content or "")
+    if type(chapter.content) ~= "string" then return nil, "章节正文格式无效" end
+    local title = optional_text(chapter.title)
+    if title == nil then return nil, "章节标题格式无效" end
+    local claimed = 0
+    if chapter.chapterWordNumber ~= nil then
+        claimed = nonnegative_integer(chapter.chapterWordNumber, 10000000)
+        if not claimed then return nil, "章节字数格式无效" end
+    end
+    local decoded, stats = Pua.decode(chapter.content)
     if stats.invalid > 0 then
         return nil, "官方正文包含无效 UTF-8，已拒绝保存异常章节"
     end
@@ -237,13 +292,12 @@ function Parser.chapter_from_state(state, expected_item_id)
     end
     local visible = table.concat(paragraphs, "")
     local visible_length = utf8_length(visible)
-    local claimed = tonumber(chapter.chapterWordNumber) or 0
     if visible_length < 500 or (claimed > 0 and visible_length < claimed * 0.45) then
         return nil, "官方网页只返回了预览或登录墙，当前章节不可公开读取"
     end
     return {
         id = item_id,
-        title = trim(chapter.title) ~= "" and trim(chapter.title) or "番茄章节",
+        title = title ~= "" and title or "番茄章节",
         paragraphs = paragraphs,
         pua_count = stats.pua,
     }
