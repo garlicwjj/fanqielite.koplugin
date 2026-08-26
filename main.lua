@@ -64,6 +64,13 @@ local function export_error_detail(detail)
     return detail
 end
 
+local function import_error_detail(detail)
+    if type(detail) ~= "string" or detail == "" then
+        return "导入操作没有返回可安全显示的错误说明"
+    end
+    return detail
+end
+
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
     self.storage = Storage:new()
@@ -352,7 +359,8 @@ function FanqieLite:prepare_file_import(path)
     local books, import_err = Import.read_file(path)
     if not books then
         logger.info("[FanqieLite] import validation rejected")
-        self:info("导入失败：\n" .. tostring(import_err) .. "\n\n现有本地书架没有改变。")
+        self:info("导入失败：\n" .. import_error_detail(import_err)
+            .. "\n\n现有本地书架没有改变。")
         return
     end
     local new_count, update_count = 0, 0

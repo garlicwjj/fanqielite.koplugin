@@ -36,6 +36,7 @@ local Parser = {
     book_id = function(value) return value end,
 }
 local Export = {}
+local Import = {}
 
 local stubs = {
     ["ui/widget/confirmbox"] = {},
@@ -57,7 +58,7 @@ local stubs = {
     ["ui/widget/container/widgetcontainer"] = WidgetContainer,
     gettext = function(text) return text end,
     ["fanqielite.export"] = Export,
-    ["fanqielite.import"] = {},
+    ["fanqielite.import"] = Import,
     ["fanqielite.library"] = {},
     ["fanqielite.networktask"] = NetworkTask,
     ["fanqielite.parser"] = Parser,
@@ -179,5 +180,18 @@ local export_failure = infos[#infos]
 assert(export_failure:find("可安全显示", 1, true), "unsafe export error did not use fixed detail")
 assert(not export_failure:find(credential_canary, 1, true), "export UI leaked raw content")
 assert(export_tostring_calls == 0, "export UI invoked __tostring")
+
+local import_tostring_calls = 0
+Import.read_file = function()
+    return nil, setmetatable({}, { __tostring = function()
+        import_tostring_calls = import_tostring_calls + 1
+        return credential_canary
+    end })
+end
+plugin:prepare_file_import("/mnt/us/fanqielite-bookshelf.json")
+local import_failure = infos[#infos]
+assert(import_failure:find("可安全显示", 1, true), "unsafe import error did not use fixed detail")
+assert(not import_failure:find(credential_canary, 1, true), "import UI leaked raw content")
+assert(import_tostring_calls == 0, "import UI invoked __tostring")
 
 print("network flow tests passed")

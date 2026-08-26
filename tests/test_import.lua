@@ -1,6 +1,14 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local decode_handler
+local filesystem_canary = "FANQIELITE_IMPORT_ERROR_CANARY_2c74"
+local filesystem_tostring_calls = 0
+local function unsafe_filesystem_error()
+    return setmetatable({}, { __tostring = function()
+        filesystem_tostring_calls = filesystem_tostring_calls + 1
+        return filesystem_canary
+    end })
+end
 package.preload["rapidjson"] = function()
     return { decode = function(contents) return decode_handler(contents) end }
 end
@@ -117,6 +125,69 @@ assert(file:write(string.rep("x", Import.MAX_BYTES + 1)))
 file:close()
 local oversized, oversized_err = Import.read_file(temporary)
 assert(oversized == nil and oversized_err:find("256 KB", 1, true))
+
+local real_open = io.open
+io.open = function() error(unsafe_filesystem_error()) end
+local open_failed, open_err = Import.read_file(temporary)
+io.open = real_open
+assert(open_failed == nil and open_err:find("无法打开导入文件", 1, true))
+assert(not open_err:find(filesystem_canary, 1, true), "import open leaked raw content")
+assert(filesystem_tostring_calls == 0, "import open invoked __tostring")
+
+io.open = function()
+    return {
+        seek = function() error(unsafe_filesystem_error()) end,
+        close = function() return true end,
+    }
+end
+local size_failed, size_err = Import.read_file(temporary)
+io.open = real_open
+assert(size_failed == nil and size_err:find("无法确认导入文件大小", 1, true))
+assert(not size_err:find(filesystem_canary, 1, true), "import size check leaked raw content")
+assert(filesystem_tostring_calls == 0, "import size check invoked __tostring")
+
+io.open = function()
+    return {
+        seek = function(_, whence)
+            if whence == "end" then return 2 end
+            error(unsafe_filesystem_error())
+        end,
+        read = function() error(unsafe_filesystem_error()) end,
+        close = function() return true end,
+    }
+end
+local seek_failed, seek_err = Import.read_file(temporary)
+io.open = real_open
+assert(seek_failed == nil and seek_err:find("无法读取导入文件", 1, true))
+assert(not seek_err:find(filesystem_canary, 1, true), "import seek leaked raw content")
+assert(filesystem_tostring_calls == 0, "import seek invoked __tostring")
+
+io.open = function()
+    return {
+        seek = function(_, whence) return whence == "end" and 2 or 0 end,
+        read = function() error(unsafe_filesystem_error()) end,
+        close = function() return true end,
+    }
+end
+local read_failed, read_err = Import.read_file(temporary)
+io.open = real_open
+assert(read_failed == nil and read_err:find("无法读取导入文件", 1, true))
+assert(not read_err:find(filesystem_canary, 1, true), "import read leaked raw content")
+assert(filesystem_tostring_calls == 0, "import read invoked __tostring")
+
+io.open = function()
+    return {
+        seek = function(_, whence) return whence == "end" and 2 or 0 end,
+        read = function() return "{}" end,
+        close = function() return nil, unsafe_filesystem_error() end,
+    }
+end
+local close_failed, close_err = Import.read_file(temporary)
+io.open = real_open
+assert(close_failed == nil and close_err:find("无法关闭导入文件", 1, true))
+assert(not close_err:find(filesystem_canary, 1, true), "import close leaked raw content")
+assert(filesystem_tostring_calls == 0, "import close invoked __tostring")
+
 os.remove(temporary)
 
 local wrong_name, wrong_name_err = Import.read_file("/tmp/books.json")

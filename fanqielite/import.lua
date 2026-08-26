@@ -172,15 +172,29 @@ function Import.read_file(path)
     if type(path) ~= "string" or path:match("([^/]+)$") ~= Import.FILENAME then
         return nil, "请选择名为 " .. Import.FILENAME .. " 的文件"
     end
-    local file, open_err = io.open(path, "rb")
-    if not file then return nil, "无法读取文件：" .. tostring(open_err) end
-    local size = file:seek("end")
-    if not size then file:close(); return nil, "无法确认导入文件大小" end
-    if size > Import.MAX_BYTES then file:close(); return nil, "导入文件超过 256 KB 安全限制" end
-    file:seek("set", 0)
-    local contents = file:read("*a")
-    file:close()
-    if not contents or #contents ~= size then return nil, "导入文件读取不完整" end
+    local open_call, file = pcall(io.open, path, "rb")
+    if not open_call or not file then return nil, "无法打开导入文件" end
+    local size_call, size = pcall(file.seek, file, "end")
+    if not size_call or type(size) ~= "number" or size ~= size
+            or size < 0 or size == math.huge then
+        pcall(file.close, file)
+        return nil, "无法确认导入文件大小"
+    end
+    if size > Import.MAX_BYTES then
+        pcall(file.close, file)
+        return nil, "导入文件超过 256 KB 安全限制"
+    end
+    local seek_call, position = pcall(file.seek, file, "set", 0)
+    if not seek_call or position ~= 0 then
+        pcall(file.close, file)
+        return nil, "无法读取导入文件"
+    end
+    local read_call, contents = pcall(file.read, file, "*a")
+    local close_call, closed = pcall(file.close, file)
+    if not read_call or type(contents) ~= "string" or #contents ~= size then
+        return nil, "无法读取导入文件"
+    end
+    if not close_call or not closed then return nil, "无法关闭导入文件" end
     local payload, decode_err = Import.decode(contents)
     if not payload then return nil, decode_err end
     return Import.validate(payload)
