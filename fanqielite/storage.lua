@@ -38,21 +38,31 @@ function Storage.is_cache_name(name)
 end
 
 local function mkdir(path)
-    local mode = lfs.attributes(path, "mode")
+    local attributes_call, mode = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil end
     if mode == "directory" then return true end
-    return lfs.mkdir(path)
+    local mkdir_call, created = pcall(lfs.mkdir, path)
+    return mkdir_call and created or nil
 end
 
 local function directory_entries(path)
     local opened, iterator, state = pcall(lfs.dir, path)
-    if not opened then return nil, tostring(iterator) end
-    if type(iterator) ~= "function" then return nil, tostring(state or "无法打开目录") end
+    if not opened or type(iterator) ~= "function" then return nil, "无法打开缓存目录" end
     local entries = {}
-    local iterated, iterate_err = pcall(function()
+    local iterated = pcall(function()
         for name in iterator, state do entries[#entries + 1] = name end
     end)
-    if not iterated then return nil, tostring(iterate_err) end
+    if not iterated then return nil, "无法遍历缓存目录" end
     return entries
+end
+
+local function discard(path)
+    pcall(os.remove, path)
+end
+
+local function remove_file(path)
+    local called, removed = pcall(os.remove, path)
+    return called and removed and true or false
 end
 
 function Storage:new()
@@ -78,22 +88,22 @@ function Storage:write_chapter(book_id, item_id, contents)
     if not valid then return nil, validation_err end
     local path = self:chapter_path(book_id, item_id)
     local temporary = path .. ".tmp"
-    local file, err = io.open(temporary, "wb")
-    if not file then return nil, "无法创建临时缓存：" .. tostring(err) end
-    local write_call, ok, write_err = pcall(file.write, file, contents)
-    local close_call, closed, close_err = pcall(file.close, file)
+    local open_call, file = pcall(io.open, temporary, "wb")
+    if not open_call or not file then return nil, "无法创建临时缓存" end
+    local write_call, ok = pcall(file.write, file, contents)
+    local close_call, closed = pcall(file.close, file)
     if not write_call or not ok then
-        os.remove(temporary)
-        return nil, "写入缓存失败：" .. tostring(write_call and write_err or ok)
+        discard(temporary)
+        return nil, "写入缓存失败"
     end
     if not close_call or not closed then
-        os.remove(temporary)
-        return nil, "完成缓存写入失败：" .. tostring(close_call and close_err or closed)
+        discard(temporary)
+        return nil, "完成缓存写入失败"
     end
-    local renamed, rename_err = os.rename(temporary, path)
-    if not renamed then
-        os.remove(temporary)
-        return nil, "无法替换章节缓存：" .. tostring(rename_err)
+    local rename_call, renamed = pcall(os.rename, temporary, path)
+    if not rename_call or not renamed then
+        discard(temporary)
+        return nil, "无法替换章节缓存"
     end
     local _, prune_err = self:prune(book_id, 12, path)
     return path, nil, prune_err
@@ -105,15 +115,16 @@ function Storage:cached_chapter(book_id, item_id)
         return nil, "缓存标识无效"
     end
     local path = self.root .. "/" .. book_id .. "/" .. item_id .. ".xhtml"
-    local mode = lfs.attributes(path, "mode")
+    local attributes_call, mode = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil, "无法读取缓存状态" end
     if mode == nil then return nil end
     if mode ~= "file" then return nil, "缓存路径不是普通文件" end
-    local file, open_err = io.open(path, "rb")
-    if not file then return nil, "无法读取缓存：" .. tostring(open_err) end
-    local contents, read_err = file:read(Storage.MAX_CHAPTER_BYTES + 1)
-    local closed, close_err = file:close()
-    if not contents then return nil, "无法读取缓存：" .. tostring(read_err) end
-    if not closed then return nil, "无法关闭缓存：" .. tostring(close_err) end
+    local open_call, file = pcall(io.open, path, "rb")
+    if not open_call or not file then return nil, "无法打开章节缓存" end
+    local read_call, contents = pcall(file.read, file, Storage.MAX_CHAPTER_BYTES + 1)
+    local close_call, closed = pcall(file.close, file)
+    if not read_call or type(contents) ~= "string" then return nil, "无法读取章节缓存" end
+    if not close_call or not closed then return nil, "无法关闭章节缓存" end
     local valid, validation_err = Storage.validate_chapter_contents(contents)
     if not valid then return nil, validation_err end
     return path
@@ -131,7 +142,12 @@ function Storage:prune(book_id, keep, protected_path)
     for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then
             local full = path .. "/" .. name
-            files[#files + 1] = { path = full, time = lfs.attributes(full, "modification") or 0 }
+            local attributes_call, modified = pcall(lfs.attributes, full, "modification")
+            if not attributes_call then return nil, "无法读取缓存文件状态" end
+            files[#files + 1] = {
+                path = full,
+                time = type(modified) == "number" and modified or 0,
+            }
         end
     end
     table.sort(files, function(a, b)
@@ -141,34 +157,34 @@ function Storage:prune(book_id, keep, protected_path)
         if a.time ~= b.time then return a.time > b.time end
         return a.path < b.path
     end)
-    local removed, failed, first_error = 0, 0, nil
+    local removed, failed = 0, 0
     for index = keep + 1, #files do
-        local ok, remove_err = os.remove(files[index].path)
-        if ok then
+        if remove_file(files[index].path) then
             removed = removed + 1
         else
             failed = failed + 1
-            first_error = first_error or tostring(remove_err or "未知删除错误")
         end
     end
     if failed > 0 then
         return removed, "已自动清理 " .. tostring(removed) .. " 个旧缓存，但有 "
-            .. tostring(failed) .. " 个无法删除：" .. first_error
+            .. tostring(failed) .. " 个无法删除"
     end
     return removed
 end
 
 function Storage:cached_count(book_id)
-    book_id = tostring(book_id or "")
-    if not book_id:match("^%d+$") then return nil, "invalid book id" end
+    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
+        return nil, "缓存标识无效"
+    end
     local path = self.root .. "/" .. book_id
-    local mode, attributes_err = lfs.attributes(path, "mode")
+    local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil, "无法读取缓存目录" end
     if mode ~= "directory" then
-        if attributes_err then return nil, "无法读取缓存目录：" .. tostring(attributes_err) end
+        if attributes_err then return nil, "无法读取缓存目录" end
         return 0
     end
     local entries, entries_err = directory_entries(path)
-    if not entries then return nil, "无法列出缓存目录：" .. tostring(entries_err) end
+    if not entries then return nil, entries_err end
     local count = 0
     for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then count = count + 1 end
@@ -177,33 +193,33 @@ function Storage:cached_count(book_id)
 end
 
 function Storage:clear_book(book_id)
-    book_id = tostring(book_id or "")
-    if not book_id:match("^%d+$") then return nil, "invalid book id" end
+    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
+        return nil, "缓存标识无效"
+    end
     local path = self.root .. "/" .. book_id
-    local mode, attributes_err = lfs.attributes(path, "mode")
+    local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil, "无法读取缓存目录" end
     if mode ~= "directory" then
-        if attributes_err then return nil, "无法读取缓存目录：" .. tostring(attributes_err) end
+        if attributes_err then return nil, "无法读取缓存目录" end
         return 0
     end
     local entries, entries_err = directory_entries(path)
-    if not entries then return nil, "无法列出缓存目录：" .. tostring(entries_err) end
-    local removed, failed, first_error = 0, 0, nil
+    if not entries then return nil, entries_err end
+    local removed, failed = 0, 0
     for _, name in ipairs(entries) do
         if Storage.is_cache_name(name) then
-            local ok, remove_err = os.remove(path .. "/" .. name)
-            if ok then
+            if remove_file(path .. "/" .. name) then
                 removed = removed + 1
             else
                 failed = failed + 1
-                first_error = first_error or tostring(remove_err or "未知删除错误")
             end
         end
     end
     if failed > 0 then
         return removed, "已清理 " .. tostring(removed) .. " 个，但有 "
-            .. tostring(failed) .. " 个无法删除：" .. first_error
+            .. tostring(failed) .. " 个无法删除"
     end
-    lfs.rmdir(path) -- May remain when an unowned file is present; never delete that file.
+    pcall(lfs.rmdir, path) -- May remain when an unowned file is present; never delete that file.
     return removed
 end
 

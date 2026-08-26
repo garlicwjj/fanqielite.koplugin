@@ -50,6 +50,13 @@ local function user_error_detail(prefix, detail)
     return prefix .. detail
 end
 
+local function cache_error_detail(detail)
+    if type(detail) ~= "string" or detail == "" then
+        return "缓存操作没有返回可安全显示的错误说明"
+    end
+    return detail
+end
+
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
     self.storage = Storage:new()
@@ -99,7 +106,7 @@ end
 
 function FanqieLite:show_cache_prune_warning(reason)
     self:info("章节已保存并可继续阅读，但旧缓存自动清理未完成：\n"
-        .. tostring(reason)
+        .. cache_error_detail(reason)
         .. "\n\n书架和当前章节没有损坏。稍后可在本书页面选择“清理章节缓存”；"
         .. "如果持续出现，请检查 Kindle 剩余空间或只读状态。")
 end
@@ -553,12 +560,12 @@ function FanqieLite:confirm_clear_cache(book_id)
         ok_callback = function()
             local count, err = self.storage:clear_book(book_id)
             if not count then
-                self:info("清理失败：" .. tostring(err)
+                self:info("清理失败：" .. cache_error_detail(err)
                     .. "\n\n书架和阅读进度没有改变。请检查存储空间或只读状态后重试。")
                 return
             end
             if err then
-                self:info("缓存只完成了部分清理：\n" .. tostring(err)
+                self:info("缓存只完成了部分清理：\n" .. cache_error_detail(err)
                     .. "\n\n未删除的缓存仍可继续使用；书架和阅读进度没有改变。")
                 return
             end

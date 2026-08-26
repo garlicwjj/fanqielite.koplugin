@@ -151,12 +151,18 @@ local future_time = plugin:book_local_status({
 }, 0, 1000)
 assert(future_time:find("设备时间异常", 1, true), "future device timestamp not rejected")
 
-plugin:show_cache_prune_warning("2 个旧缓存无法删除：read-only filesystem")
+local cache_tostring_calls = 0
+plugin:show_cache_prune_warning(setmetatable({}, { __tostring = function()
+    cache_tostring_calls = cache_tostring_calls + 1
+    return credential_canary
+end }))
 local prune_warning = infos[#infos]
 assert(prune_warning:find("章节已保存", 1, true), "successful chapter write was hidden")
 assert(prune_warning:find("旧缓存自动清理未完成", 1, true), "cache prune warning heading missing")
 assert(prune_warning:find("书架和当前章节没有损坏", 1, true), "cache safety state missing")
 assert(prune_warning:find("清理章节缓存", 1, true), "cache warning has no next action")
-assert(prune_warning:find("read%-only filesystem"), "cache prune reason missing")
+assert(prune_warning:find("可安全显示", 1, true), "unsafe cache warning did not use fixed detail")
+assert(not prune_warning:find(credential_canary, 1, true), "cache warning leaked raw content")
+assert(cache_tostring_calls == 0, "cache warning invoked __tostring")
 
 print("network flow tests passed")
