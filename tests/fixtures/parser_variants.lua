@@ -39,6 +39,20 @@ return {
             state = { page = { bookId = "70000000007", bookName = "合法书名", author = {} } },
             error_contains = "作者格式无效",
         },
+        {
+            name = "overlong book title",
+            state = { page = {
+                bookId = "70000000008", bookName = string.rep("x", 301), author = "作者",
+            } },
+            error_contains = "书名过长",
+        },
+        {
+            name = "book author control character",
+            state = { page = {
+                bookId = "70000000009", bookName = "合法书名", author = "作者\n伪造菜单",
+            } },
+            error_contains = "作者包含控制字符",
+        },
     },
     directories = {
         {
@@ -112,6 +126,20 @@ return {
                 { itemId = "71000000012", title = "合法标题", index = {} },
             } } },
             error_contains = "章节序号",
+        },
+        {
+            name = "overlong directory title",
+            payload = { data = { chapterList = {
+                { itemId = "71000000013", title = string.rep("x", 301) },
+            } } },
+            error_contains = "章节标题过长",
+        },
+        {
+            name = "directory title control character",
+            payload = { data = { chapterList = {
+                { itemId = "71000000014", title = "合法标题\n伪造菜单" },
+            } } },
+            error_contains = "章节标题包含控制字符",
         },
     },
     chapters = {
@@ -257,6 +285,52 @@ return {
                 content = synthetic_body(600), chapterWordNumber = {},
             },
             error_contains = "字数格式",
+        },
+        {
+            name = "overlong chapter title",
+            item_id = "72000000018",
+            chapter = {
+                itemId = "72000000018", title = string.rep("x", 301),
+                content = synthetic_body(600), chapterWordNumber = 600,
+            },
+            error_contains = "章节标题过长",
+        },
+        {
+            name = "chapter title control character",
+            item_id = "72000000019",
+            chapter = {
+                itemId = "72000000019", title = "合法标题\n伪造提示",
+                content = synthetic_body(600), chapterWordNumber = 600,
+            },
+            error_contains = "章节标题包含控制字符",
+        },
+        {
+            name = "chapter content illegal control",
+            item_id = "72000000020",
+            chapter = {
+                itemId = "72000000020", title = "非法控制字符",
+                content = synthetic_body(600) .. string.char(0), chapterWordNumber = 600,
+            },
+            error_contains = "正文包含非法控制字符",
+        },
+        {
+            name = "oversized chapter content",
+            item_id = "72000000022",
+            chapter = {
+                itemId = "72000000022", title = "超大正文",
+                content = string.rep("x", 1024 * 1024 + 1), chapterWordNumber = 600,
+            },
+            error_contains = "正文过大",
+        },
+        {
+            name = "chapter content allowed whitespace",
+            item_id = "72000000021",
+            chapter = {
+                itemId = "72000000021", title = "合法正文空白",
+                content = synthetic_body(600) .. "\n\t<p>补充正文</p>\r\n", chapterWordNumber = 600,
+            },
+            expected_title = "合法正文空白",
+            expected_contains = "补充正文",
         },
     },
 }
