@@ -373,5 +373,37 @@ return {
             expected_title = "合法正文空白",
             expected_contains = "补充正文",
         },
+        {
+            name = "mixed-case script cannot satisfy body length",
+            item_id = "72000000023",
+            chapter = {
+                itemId = "72000000023", title = "脚本伪正文",
+                content = '<ScRiPt type="text/javascript">'
+                    .. string.rep("伪脚本内容", 200) .. "</sCrIpT><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "预览",
+        },
+        {
+            name = "mixed-case style cannot satisfy body length",
+            item_id = "72000000024",
+            chapter = {
+                itemId = "72000000024", title = "样式伪正文",
+                content = "<StYlE>\n" .. string.rep("hidden-style-text", 80)
+                    .. "\n</sTyLe><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "预览",
+        },
+        {
+            name = "unclosed script is rejected",
+            item_id = "72000000025",
+            chapter = {
+                itemId = "72000000025", title = "未闭合脚本",
+                content = "<SCRIPT>" .. string.rep("伪脚本内容", 200),
+                chapterWordNumber = 600,
+            },
+            error_contains = "脚本或样式",
+        },
     },
 }

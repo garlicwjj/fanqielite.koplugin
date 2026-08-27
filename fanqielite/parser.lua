@@ -264,8 +264,15 @@ function Parser.directory_from_payload(payload)
 end
 
 local function plain_paragraphs(raw)
-    raw = raw:gsub("<script[^>]*>.-</script>", "")
-        :gsub("<style[^>]*>.-</style>", "")
+    raw = raw:gsub("<%s*[sS][cC][rR][iI][pP][tT]%f[%s>][^>]*>.-"
+            .. "</%s*[sS][cC][rR][iI][pP][tT]%s*>", "")
+        :gsub("<%s*[sS][tT][yY][lL][eE]%f[%s>][^>]*>.-"
+            .. "</%s*[sS][tT][yY][lL][eE]%s*>", "")
+    if raw:find("<%s*/?%s*[sS][cC][rR][iI][pP][tT]%f[%s>]")
+            or raw:find("<%s*/?%s*[sS][tT][yY][lL][eE]%f[%s>]") then
+        return nil, 0, true
+    end
+    raw = raw
         :gsub("<[bB][rR]%s*/?>", "\n")
         :gsub("</[pP]%s*>", "\n")
         :gsub("</[dD][iI][vV]%s*>", "\n")
@@ -280,7 +287,7 @@ local function plain_paragraphs(raw)
         line = trim(line)
         if line ~= "" then paragraphs[#paragraphs + 1] = line end
     end
-    return paragraphs, invalid_entities
+    return paragraphs, invalid_entities, false
 end
 
 function Parser.chapter_from_state(state, expected_item_id)
@@ -317,7 +324,8 @@ function Parser.chapter_from_state(state, expected_item_id)
     if stats.unknown > 0 then
         return nil, "番茄字符映射已经变化，已拒绝保存乱码章节"
     end
-    local paragraphs, invalid_entities = plain_paragraphs(decoded)
+    local paragraphs, invalid_entities, active_markup = plain_paragraphs(decoded)
+    if active_markup then return nil, "官方正文包含未闭合脚本或样式，已拒绝保存" end
     if invalid_entities > 0 then
         return nil, "官方正文包含非法字符实体，已拒绝保存异常章节"
     end
