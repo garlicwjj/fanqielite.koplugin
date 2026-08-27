@@ -263,6 +263,19 @@ function Parser.directory_from_payload(payload)
     return output
 end
 
+local function has_explicit_hidden_markup(raw)
+    local lowered = raw:lower()
+    for tag in lowered:gmatch("<[^>]*>") do
+        if tag:find("%s+hidden%s*[=>/]")
+                or tag:find("%s+aria%-hidden%s*=%s*['\"]?true%f[%W]")
+                or tag:find("display%s*:%s*none%f[%W]")
+                or tag:find("visibility%s*:%s*hidden%f[%W]") then
+            return true
+        end
+    end
+    return false
+end
+
 local function plain_paragraphs(raw)
     raw = raw:gsub("<%s*[sS][cC][rR][iI][pP][tT]%f[%s>][^>]*>.-"
             .. "</%s*[sS][cC][rR][iI][pP][tT]%s*>", "")
@@ -270,7 +283,10 @@ local function plain_paragraphs(raw)
             .. "</%s*[sS][tT][yY][lL][eE]%s*>", "")
     if raw:find("<%s*/?%s*[sS][cC][rR][iI][pP][tT]%f[%s>]")
             or raw:find("<%s*/?%s*[sS][tT][yY][lL][eE]%f[%s>]") then
-        return nil, 0, true
+        return nil, 0, "官方正文包含未闭合脚本或样式，已拒绝保存"
+    end
+    if has_explicit_hidden_markup(raw) then
+        return nil, 0, "官方正文包含隐藏内容标记，已拒绝保存"
     end
     raw = raw
         :gsub("<[bB][rR]%s*/?>", "\n")
@@ -287,7 +303,7 @@ local function plain_paragraphs(raw)
         line = trim(line)
         if line ~= "" then paragraphs[#paragraphs + 1] = line end
     end
-    return paragraphs, invalid_entities, false
+    return paragraphs, invalid_entities
 end
 
 function Parser.chapter_from_state(state, expected_item_id)
@@ -324,8 +340,8 @@ function Parser.chapter_from_state(state, expected_item_id)
     if stats.unknown > 0 then
         return nil, "番茄字符映射已经变化，已拒绝保存乱码章节"
     end
-    local paragraphs, invalid_entities, active_markup = plain_paragraphs(decoded)
-    if active_markup then return nil, "官方正文包含未闭合脚本或样式，已拒绝保存" end
+    local paragraphs, invalid_entities, markup_err = plain_paragraphs(decoded)
+    if markup_err then return nil, markup_err end
     if invalid_entities > 0 then
         return nil, "官方正文包含非法字符实体，已拒绝保存异常章节"
     end

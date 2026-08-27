@@ -405,5 +405,61 @@ return {
             },
             error_contains = "脚本或样式",
         },
+        {
+            name = "hidden attribute cannot satisfy body length",
+            item_id = "72000000026",
+            chapter = {
+                itemId = "72000000026", title = "hidden 伪正文",
+                content = "<div hidden>" .. string.rep("隐藏伪正文", 200)
+                    .. "</div><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "隐藏",
+        },
+        {
+            name = "aria-hidden cannot satisfy body length",
+            item_id = "72000000027",
+            chapter = {
+                itemId = "72000000027", title = "aria 伪正文",
+                content = '<section aria-hidden="true">' .. string.rep("隐藏伪正文", 200)
+                    .. "</section><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "隐藏",
+        },
+        {
+            name = "display none cannot satisfy body length",
+            item_id = "72000000028",
+            chapter = {
+                itemId = "72000000028", title = "display 伪正文",
+                content = '<DIV STYLE="color:red; DISPLAY : NONE;">'
+                    .. string.rep("隐藏伪正文", 200) .. "</DIV><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "隐藏",
+        },
+        {
+            name = "visibility hidden cannot satisfy body length",
+            item_id = "72000000029",
+            chapter = {
+                itemId = "72000000029", title = "visibility 伪正文",
+                content = '<span style="visibility:hidden">'
+                    .. string.rep("隐藏伪正文", 200) .. "</span><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "隐藏",
+        },
+        {
+            name = "visible style and hidden word remain valid",
+            item_id = "72000000030",
+            chapter = {
+                itemId = "72000000030", title = "合法可见样式",
+                content = synthetic_body(600)
+                    .. '<p class="not-hidden" style="display:inline;visibility:visible">hidden 只是正文单词</p>',
+                chapterWordNumber = 600,
+            },
+            expected_title = "合法可见样式",
+            expected_contains = "hidden 只是正文单词",
+        },
     },
 }
