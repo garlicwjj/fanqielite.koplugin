@@ -334,8 +334,14 @@ function FanqieLite:show_search_results(query, results)
     })
 end
 
-function FanqieLite:unavailable(feature)
-    self:info(feature .. "仍在安全开发中。\n\n它不会影响现有本地书架；功能通过审计和实机验证后才会开放。")
+function FanqieLite:show_qr_import_status()
+    self:info("一次性扫码导入尚未开放。\n\n"
+        .. "当前版本没有发起账号授权，也没有请求或保存任何登录信息；"
+        .. "已有本地书架不受影响。\n\n"
+        .. "现在可以返回“我的本地书架”，选择：\n"
+        .. "1. 搜索或添加一本书\n"
+        .. "2. 从文件导入书架\n\n"
+        .. "扫码功能只有在安全审计和测试账号验证完成后才会开放。")
 end
 
 function FanqieLite:choose_import_file()
@@ -466,7 +472,7 @@ function FanqieLite:show_home()
     local items = {
         {
             text = _("扫码导入我的番茄书架（实验性）"),
-            callback = function() self:unavailable("一次性扫码导入") end,
+            callback = function() self:show_qr_import_status() end,
         },
         { text = _("搜索或添加一本书"), callback = function() self:prompt_book() end },
         {
