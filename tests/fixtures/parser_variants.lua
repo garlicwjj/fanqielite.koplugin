@@ -461,5 +461,37 @@ return {
             expected_title = "合法可见样式",
             expected_contains = "hidden 只是正文单词",
         },
+        {
+            name = "html comment cannot satisfy body length",
+            item_id = "72000000031",
+            chapter = {
+                itemId = "72000000031", title = "注释伪正文",
+                content = "<!-- marker > " .. string.rep("隐藏注释正文", 200)
+                    .. " --><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "预览",
+        },
+        {
+            name = "unclosed html comment is rejected",
+            item_id = "72000000032",
+            chapter = {
+                itemId = "72000000032", title = "未闭合注释",
+                content = "<!-- marker > " .. string.rep("隐藏注释正文", 200),
+                chapterWordNumber = 600,
+            },
+            error_contains = "注释",
+        },
+        {
+            name = "escaped comment markers remain visible text",
+            item_id = "72000000033",
+            chapter = {
+                itemId = "72000000033", title = "转义注释文本",
+                content = synthetic_body(600) .. "<p>&lt;!-- 可见注释文字 --&gt;</p>",
+                chapterWordNumber = 600,
+            },
+            expected_title = "转义注释文本",
+            expected_contains = "<!-- 可见注释文字 -->",
+        },
     },
 }
