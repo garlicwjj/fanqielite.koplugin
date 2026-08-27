@@ -95,6 +95,9 @@ else
 fi
 
 grep -Fq 'koreader/plugins/fanqielite.koplugin' "$plugin_root/INSTALL.md"
+grep -Fq 'koreader/settings/fanqielite.lua' "$plugin_root/INSTALL.md"
+grep -Fq 'koreader/fanqielite' "$plugin_root/INSTALL.md"
+grep -Fq '同一份升级前备份' "$plugin_root/INSTALL.md"
 grep -Fq '候选测试包' "$plugin_root/INSTALL.md"
 
 printf '%s\n' "candidate package tests passed"
