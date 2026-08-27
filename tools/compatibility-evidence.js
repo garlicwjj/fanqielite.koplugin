@@ -133,6 +133,16 @@ function parseJsonLines(text) {
     return records;
 }
 
+function publicRecordCorrect(observation) {
+    return observation.result === "success"
+        && observation.cache_saved
+        && !observation.garbled
+        && observation.unknown_pua === 0
+        && observation.visible_characters >= 500
+        && (observation.claimed_characters === 0
+            || observation.visible_characters >= observation.claimed_characters * 0.45);
+}
+
 function summarize(records) {
     const books = new Set();
     const scenarios = new Set();
@@ -150,7 +160,7 @@ function summarize(records) {
 
         if (record.observation.response === "public_full") {
             publicTotal += 1;
-            if (record.observation.result === "success" && !record.observation.garbled) publicCorrect += 1;
+            if (publicRecordCorrect(record.observation)) publicCorrect += 1;
         } else {
             protectedTotal += 1;
             if (record.observation.result === "safe_reject"

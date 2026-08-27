@@ -69,6 +69,28 @@ assert.deepStrictEqual(summary, {
     protectedCorrect: 1,
 });
 
+const uncachedPublic = record();
+uncachedPublic.observation.cache_saved = false;
+assert.strictEqual(summarize([uncachedPublic]).publicCorrect, 0,
+    "uncached public chapter counted as correct");
+
+const shortPublic = record();
+shortPublic.observation.visible_characters = 499;
+shortPublic.observation.claimed_characters = 0;
+assert.strictEqual(summarize([shortPublic]).publicCorrect, 0,
+    "short public preview counted as correct");
+
+const incompletePublic = record();
+incompletePublic.observation.visible_characters = 600;
+incompletePublic.observation.claimed_characters = 2000;
+assert.strictEqual(summarize([incompletePublic]).publicCorrect, 0,
+    "incomplete claimed chapter counted as correct");
+
+const unknownPuaPublic = record();
+unknownPuaPublic.observation.unknown_pua = 1;
+assert.strictEqual(summarize([unknownPuaPublic]).publicCorrect, 0,
+    "unknown PUA public chapter counted as correct");
+
 assert.throws(() => summarize([record(), record()]), /重复/);
 assert.throws(() => parseJsonLines("{not json}\n"), /第 1 行/);
 
@@ -165,6 +187,12 @@ assert(evaluateMatrix(wrongSerialization).errors.some((error) => error.includes(
 const belowNinetyFive = completeMatrix();
 belowNinetyFive.slice(6, 11).forEach((value) => { value.observation.result = "parse_failure"; });
 assert(evaluateMatrix(belowNinetyFive).errors.some((error) => error.includes("95%")));
+
+const uncachedBelowNinetyFive = completeMatrix();
+uncachedBelowNinetyFive.slice(6, 10).forEach((value) => {
+    value.observation.cache_saved = false;
+});
+assert(evaluateMatrix(uncachedBelowNinetyFive).errors.some((error) => error.includes("95%")));
 
 const unsafeLocked = completeMatrix();
 const lockedRecord = unsafeLocked.find((value) => value.observation.response === "locked");
