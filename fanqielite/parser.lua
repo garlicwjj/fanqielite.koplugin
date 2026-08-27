@@ -277,6 +277,10 @@ local function has_explicit_hidden_markup(raw)
 end
 
 local function plain_paragraphs(raw)
+    raw = raw:gsub("<!%-%-.-%-%->", "")
+    if raw:find("<!%-%-") or raw:find("%-%->") then
+        return nil, 0, "官方正文包含未闭合 HTML 注释，已拒绝保存"
+    end
     raw = raw:gsub("<%s*[sS][cC][rR][iI][pP][tT]%f[%s>][^>]*>.-"
             .. "</%s*[sS][cC][rR][iI][pP][tT]%s*>", "")
         :gsub("<%s*[sS][tT][yY][lL][eE]%f[%s>][^>]*>.-"
