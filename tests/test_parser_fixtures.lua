@@ -53,6 +53,10 @@ for _, case in ipairs(fixtures.chapters) do
                 and not table.concat(chapter.paragraphs, ""):find(case.expected_contains, 1, true) then
             fail(case, "decoded text missing")
         end
+        if case.expected_not_contains
+                and table.concat(chapter.paragraphs, ""):find(case.expected_not_contains, 1, true) then
+            fail(case, "HTML attribute leaked into visible text")
+        end
         if case.expected_pua and chapter.pua_count ~= case.expected_pua then
             fail(case, "encoded PUA count changed")
         end

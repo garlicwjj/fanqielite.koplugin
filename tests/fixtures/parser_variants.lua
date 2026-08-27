@@ -493,5 +493,40 @@ return {
             expected_title = "转义注释文本",
             expected_contains = "<!-- 可见注释文字 -->",
         },
+        {
+            name = "quoted greater-than attribute cannot satisfy body length",
+            item_id = "72000000034",
+            chapter = {
+                itemId = "72000000034", title = "属性伪正文",
+                content = '<div title="marker > ' .. string.rep("属性伪正文", 200)
+                    .. '"><p>短正文</p></div>',
+                chapterWordNumber = 600,
+            },
+            error_contains = "预览",
+        },
+        {
+            name = "hidden after quoted greater-than is rejected",
+            item_id = "72000000035",
+            chapter = {
+                itemId = "72000000035", title = "属性后隐藏正文",
+                content = '<div title="marker > value" hidden class="chapter">'
+                    .. string.rep("隐藏伪正文", 200) .. "</div><p>短正文</p>",
+                chapterWordNumber = 600,
+            },
+            error_contains = "隐藏",
+        },
+        {
+            name = "quoted greater-than attribute stays out of visible text",
+            item_id = "72000000036",
+            chapter = {
+                itemId = "72000000036", title = "合法引号属性",
+                content = '<div title="private-marker hidden > attribute-tail">'
+                    .. synthetic_body(600) .. "</div>",
+                chapterWordNumber = 600,
+            },
+            expected_title = "合法引号属性",
+            expected_contains = "公开测试文字",
+            expected_not_contains = "attribute-tail",
+        },
     },
 }

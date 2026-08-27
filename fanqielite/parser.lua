@@ -263,17 +263,111 @@ function Parser.directory_from_payload(payload)
     return output
 end
 
-local function has_explicit_hidden_markup(raw)
-    local lowered = raw:lower()
-    for tag in lowered:gmatch("<[^>]*>") do
-        if tag:find("%s+hidden%s*[=>/]")
-                or tag:find("%s+aria%-hidden%s*=%s*['\"]?true%f[%W]")
-                or tag:find("display%s*:%s*none%f[%W]")
-                or tag:find("visibility%s*:%s*hidden%f[%W]") then
-            return true
+local function is_markup_space(byte)
+    return byte == 32 or byte == 9 or byte == 13 or byte == 10 or byte == 12
+end
+
+local function is_attribute_name_byte(byte)
+    return byte and ((byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90)
+        or (byte >= 97 and byte <= 122) or byte == 95 or byte == 58
+        or byte == 45 or byte == 46)
+end
+
+local function tag_has_explicit_hidden_markup(tag)
+    local cursor = 2
+    while is_markup_space(tag:byte(cursor)) do cursor = cursor + 1 end
+    if tag:byte(cursor) == 47 then cursor = cursor + 1 end
+    while is_markup_space(tag:byte(cursor)) do cursor = cursor + 1 end
+    while is_attribute_name_byte(tag:byte(cursor)) do cursor = cursor + 1 end
+
+    while cursor < #tag do
+        while is_markup_space(tag:byte(cursor)) do cursor = cursor + 1 end
+        local byte = tag:byte(cursor)
+        if not byte or byte == 62 or byte == 47 then break end
+        local name_start = cursor
+        while is_attribute_name_byte(tag:byte(cursor)) do cursor = cursor + 1 end
+        if cursor == name_start then
+            cursor = cursor + 1
+        else
+            local name = tag:sub(name_start, cursor - 1):lower()
+            while is_markup_space(tag:byte(cursor)) do cursor = cursor + 1 end
+            local value = true
+            if tag:byte(cursor) == 61 then
+                cursor = cursor + 1
+                while is_markup_space(tag:byte(cursor)) do cursor = cursor + 1 end
+                local quote = tag:byte(cursor)
+                if quote == 34 or quote == 39 then
+                    local value_start = cursor + 1
+                    local value_end = tag:find(string.char(quote), value_start, true)
+                    if not value_end then return nil end
+                    value = tag:sub(value_start, value_end - 1):lower()
+                    cursor = value_end + 1
+                else
+                    local value_start = cursor
+                    while cursor < #tag and not is_markup_space(tag:byte(cursor))
+                            and tag:byte(cursor) ~= 62 do
+                        cursor = cursor + 1
+                    end
+                    value = tag:sub(value_start, cursor - 1):lower()
+                end
+            end
+            if name == "hidden"
+                    or (name == "aria-hidden" and trim(value) == "true")
+                    or (name == "style" and type(value) == "string"
+                        and (value:find("display%s*:%s*none%f[%W]")
+                        or value:find("visibility%s*:%s*hidden%f[%W]"))) then
+                return true
+            end
         end
     end
     return false
+end
+
+local function tag_end(raw, start_at)
+    local quote
+    for index = start_at + 1, #raw do
+        local byte = raw:byte(index)
+        if quote then
+            if byte == quote then quote = nil end
+        elseif byte == 34 or byte == 39 then
+            quote = byte
+        elseif byte == 62 then
+            return index
+        end
+    end
+end
+
+local function strip_markup(raw)
+    local output = {}
+    local cursor = 1
+    while cursor <= #raw do
+        local start_at = raw:find("<", cursor, true)
+        if not start_at then
+            output[#output + 1] = raw:sub(cursor)
+            break
+        end
+        output[#output + 1] = raw:sub(cursor, start_at - 1)
+        local end_at = tag_end(raw, start_at)
+        if not end_at then
+            return nil, "官方正文包含未闭合 HTML 标签，已拒绝保存"
+        end
+        local tag = raw:sub(start_at, end_at)
+        local hidden = tag_has_explicit_hidden_markup(tag)
+        if hidden == nil then
+            return nil, "官方正文包含畸形 HTML 属性，已拒绝保存"
+        end
+        if hidden then
+            return nil, "官方正文包含隐藏内容标记，已拒绝保存"
+        end
+        local name = tag:match("^<%s*/?%s*([%a][%w_:%-%.]*)")
+        local closing = tag:match("^<%s*/") ~= nil
+        if name and (name:lower() == "br"
+                or (closing and (name:lower() == "p" or name:lower() == "div"))) then
+            output[#output + 1] = "\n"
+        end
+        cursor = end_at + 1
+    end
+    return table.concat(output)
 end
 
 local function plain_paragraphs(raw)
@@ -289,14 +383,9 @@ local function plain_paragraphs(raw)
             or raw:find("<%s*/?%s*[sS][tT][yY][lL][eE]%f[%s>]") then
         return nil, 0, "官方正文包含未闭合脚本或样式，已拒绝保存"
     end
-    if has_explicit_hidden_markup(raw) then
-        return nil, 0, "官方正文包含隐藏内容标记，已拒绝保存"
-    end
-    raw = raw
-        :gsub("<[bB][rR]%s*/?>", "\n")
-        :gsub("</[pP]%s*>", "\n")
-        :gsub("</[dD][iI][vV]%s*>", "\n")
-        :gsub("<[^>]+>", "")
+    local markup_err
+    raw, markup_err = strip_markup(raw)
+    if not raw then return nil, 0, markup_err end
     local invalid_entities
     raw, invalid_entities = html_entities(raw)
     raw = raw:gsub("\r", "")
