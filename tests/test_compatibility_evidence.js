@@ -5,7 +5,13 @@ const childProcess = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { evaluateMatrix, parseJsonLines, summarize, validateRecord } = require("../tools/compatibility-evidence");
+const {
+    evaluateMatrix,
+    parseJsonLines,
+    structureFingerprint,
+    summarize,
+    validateRecord,
+} = require("../tools/compatibility-evidence");
 
 function record(overrides = {}) {
     const value = {
@@ -93,6 +99,43 @@ assert.strictEqual(summarize([unknownPuaPublic]).publicCorrect, 0,
 
 assert.throws(() => summarize([record(), record()]), /重复/);
 assert.throws(() => parseJsonLines("{not json}\n"), /第 1 行/);
+
+const privateValue = "COOKIE_SECRET_VALUE";
+const firstShape = {
+    data: {
+        chapterData: { itemId: "70000000001", content: privateValue, needPay: false },
+        volumes: [{ itemId: "70000000002", title: "第一章" }],
+    },
+};
+const sameShape = {
+    data: {
+        chapterData: { itemId: "79999999999", content: "完全不同的正文", needPay: true },
+        volumes: [
+            { itemId: "78888888888", title: "不同标题" },
+            { itemId: "77777777777", title: "另一标题" },
+        ],
+    },
+};
+const changedShape = {
+    data: {
+        chapterData: {
+            itemId: "79999999999", content: "完全不同的正文", needPay: true, newField: 1,
+        },
+        volumes: [{ itemId: "78888888888", title: "不同标题" }],
+    },
+};
+const fingerprint = structureFingerprint(firstShape);
+assert.match(fingerprint, /^[0-9a-f]{64}$/);
+assert.strictEqual(fingerprint, structureFingerprint(sameShape),
+    "field values or repeated array items changed the structure fingerprint");
+assert.notStrictEqual(fingerprint, structureFingerprint(changedShape),
+    "a changed field set kept the same structure fingerprint");
+assert(!fingerprint.includes(privateValue), "private value leaked into fingerprint output");
+
+let tooDeep = null;
+for (let depth = 0; depth < 70; depth += 1) tooDeep = { child: tooDeep };
+assert.throws(() => structureFingerprint(tooDeep), /层级/);
+assert.throws(() => structureFingerprint(new Array(50001).fill(null)), /节点/);
 
 function completeMatrix() {
     const bands = [
@@ -247,6 +290,34 @@ try {
         [tool, "--require-complete", incompletePath], { encoding: "utf8" });
     assert.notStrictEqual(incompleteRun.status, 0, "incomplete matrix passed the CLI gate");
     assert(incompleteRun.stderr.includes("90 个章节场景"));
+
+    const fingerprintRun = childProcess.spawnSync(process.execPath,
+        [tool, "--fingerprint"], {
+            encoding: "utf8",
+            input: JSON.stringify(firstShape),
+        });
+    assert.strictEqual(fingerprintRun.status, 0);
+    assert.strictEqual(fingerprintRun.stdout.trim(), fingerprint);
+    assert(!fingerprintRun.stdout.includes(privateValue), "fingerprint CLI leaked response value");
+
+    const malformedSecret = "MALFORMED_SECRET_VALUE";
+    const malformedFingerprintRun = childProcess.spawnSync(process.execPath,
+        [tool, "--fingerprint"], {
+            encoding: "utf8",
+            input: `{"content":"${malformedSecret}"`,
+        });
+    assert.notStrictEqual(malformedFingerprintRun.status, 0);
+    assert(malformedFingerprintRun.stderr.includes("结构指纹输入不是有效 JSON"));
+    assert(!malformedFingerprintRun.stderr.includes(malformedSecret),
+        "fingerprint parse error leaked response value");
+
+    const oversizedFingerprintRun = childProcess.spawnSync(process.execPath,
+        [tool, "--fingerprint"], {
+            encoding: "utf8",
+            input: JSON.stringify({ content: "x".repeat(2 * 1024 * 1024) }),
+        });
+    assert.notStrictEqual(oversizedFingerprintRun.status, 0);
+    assert(oversizedFingerprintRun.stderr.includes("超过 2 MB"));
 } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
 }

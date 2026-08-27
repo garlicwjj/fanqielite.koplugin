@@ -2,7 +2,11 @@
 "use strict";
 
 const fs = require("fs");
+const crypto = require("crypto");
 const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_FINGERPRINT_BYTES = 2 * 1024 * 1024;
+const MAX_STRUCTURE_DEPTH = 64;
+const MAX_STRUCTURE_NODES = 50000;
 const REQUIRED_POSITIONS = ["first", "middle", "latest"];
 const BAND_QUOTAS = [
     { key: "under_50", label: "少于 50 章", minimum: 5, matches: (count) => count < 50 },
@@ -111,6 +115,35 @@ function validateRecord(record) {
     string(record.observation.structure_sha256, "observation.structure_sha256", /^[0-9a-f]{64}$/);
 
     return record;
+}
+
+function structureFingerprint(value) {
+    const state = { nodes: 0, active: new WeakSet() };
+    function shape(current, depth) {
+        if (depth > MAX_STRUCTURE_DEPTH) fail("响应结构层级过深");
+        state.nodes += 1;
+        if (state.nodes > MAX_STRUCTURE_NODES) fail("响应结构节点过多");
+        if (current === null) return "null";
+        if (Array.isArray(current)) {
+            if (state.active.has(current)) fail("响应结构包含循环引用");
+            state.active.add(current);
+            const members = [...new Set(current.map((item) => shape(item, depth + 1)))].sort();
+            state.active.delete(current);
+            return `[${members.join("|")}]`;
+        }
+        if (typeof current === "object") {
+            if (state.active.has(current)) fail("响应结构包含循环引用");
+            state.active.add(current);
+            const members = Object.keys(current).sort().map((key) =>
+                `${JSON.stringify(key)}:${shape(current[key], depth + 1)}`);
+            state.active.delete(current);
+            return `{${members.join(",")}}`;
+        }
+        if (["string", "number", "boolean"].includes(typeof current)) return typeof current;
+        fail("响应结构包含不支持的数据类型");
+    }
+    const structure = shape(value, 0);
+    return crypto.createHash("sha256").update(structure, "utf8").digest("hex");
 }
 
 function parseJsonLines(text) {
@@ -300,6 +333,26 @@ function percentage(correct, total) {
 }
 
 function main(argv) {
+    if (argv[0] === "--fingerprint") {
+        if (argv.length !== 1) fail("用法：node tools/compatibility-evidence.js --fingerprint < response.json");
+        let text;
+        try {
+            text = fs.readFileSync(0, "utf8");
+        } catch (_) {
+            fail("无法读取结构指纹输入");
+        }
+        if (Buffer.byteLength(text, "utf8") > MAX_FINGERPRINT_BYTES) {
+            fail("结构指纹输入超过 2 MB 限制");
+        }
+        let value;
+        try {
+            value = JSON.parse(text);
+        } catch (_) {
+            fail("结构指纹输入不是有效 JSON");
+        }
+        process.stdout.write(`${structureFingerprint(value)}\n`);
+        return;
+    }
     const requireComplete = argv[0] === "--require-complete";
     const path = requireComplete ? argv[1] : argv[0];
     if (!path || argv.length !== (requireComplete ? 2 : 1)) {
@@ -336,4 +389,10 @@ if (require.main === module) {
     }
 }
 
-module.exports = { evaluateMatrix, parseJsonLines, summarize, validateRecord };
+module.exports = {
+    evaluateMatrix,
+    parseJsonLines,
+    structureFingerprint,
+    summarize,
+    validateRecord,
+};
