@@ -195,6 +195,19 @@ local function add_chapter(output, seen, chapter, fallback_index)
     return true
 end
 
+local function array_count(value, label)
+    local count, maximum_index = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+            return nil, label .. "不是连续数组"
+        end
+        count = count + 1
+        if key > maximum_index then maximum_index = key end
+    end
+    if maximum_index ~= count then return nil, label .. "不是连续数组" end
+    return count
+end
+
 function Parser.directory_from_payload(payload)
     local data = type(payload) == "table" and payload.data or nil
     if type(data) ~= "table" then return nil, "目录接口没有返回数据" end
@@ -203,13 +216,20 @@ function Parser.directory_from_payload(payload)
         return nil, "目录卷结构无效"
     end
     if type(data.chapterListWithVolume) == "table" then
-        for _, volume in ipairs(data.chapterListWithVolume) do
+        local volume_count, volume_count_err = array_count(
+            data.chapterListWithVolume, "目录卷列表")
+        if not volume_count then return nil, volume_count_err end
+        for volume_index = 1, volume_count do
+            local volume = data.chapterListWithVolume[volume_index]
             if type(volume) ~= "table" then return nil, "目录卷结构无效" end
             if volume.chapterList ~= nil and type(volume.chapterList) ~= "table" then
                 return nil, "目录卷章节结构无效"
             end
             local list = volume.chapterList or volume
-            for _, chapter in ipairs(list) do
+            local chapter_count, chapter_count_err = array_count(list, "目录卷章节列表")
+            if not chapter_count then return nil, chapter_count_err end
+            for chapter_index = 1, chapter_count do
+                local chapter = list[chapter_index]
                 local added, add_err = add_chapter(output, seen, chapter, #output + 1)
                 if not added then return nil, add_err end
             end
@@ -219,7 +239,10 @@ function Parser.directory_from_payload(payload)
         return nil, "目录列表结构无效"
     end
     if #output == 0 and type(data.chapterList) == "table" then
-        for _, chapter in ipairs(data.chapterList) do
+        local chapter_count, chapter_count_err = array_count(data.chapterList, "目录章节列表")
+        if not chapter_count then return nil, chapter_count_err end
+        for chapter_index = 1, chapter_count do
+            local chapter = data.chapterList[chapter_index]
             local added, add_err = add_chapter(output, seen, chapter, #output + 1)
             if not added then return nil, add_err end
         end
@@ -228,7 +251,10 @@ function Parser.directory_from_payload(payload)
         return nil, "目录 ID 列表结构无效"
     end
     if #output == 0 and type(data.allItemIds) == "table" then
-        for _, id in ipairs(data.allItemIds) do
+        local id_count, id_count_err = array_count(data.allItemIds, "目录 ID 列表")
+        if not id_count then return nil, id_count_err end
+        for id_index = 1, id_count do
+            local id = data.allItemIds[id_index]
             local added, add_err = add_chapter(output, seen, { itemId = id }, #output + 1)
             if not added then return nil, add_err end
         end

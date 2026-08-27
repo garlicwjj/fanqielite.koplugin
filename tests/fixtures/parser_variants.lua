@@ -141,6 +141,47 @@ return {
             } } },
             error_contains = "章节标题包含控制字符",
         },
+        {
+            name = "sparse volume list",
+            payload = { data = { chapterListWithVolume = {
+                [1] = { { itemId = "71000000015", title = "第一卷章节" } },
+                [3] = { { itemId = "71000000016", title = "第三卷章节" } },
+            } } },
+            error_contains = "连续数组",
+        },
+        {
+            name = "mixed-key volume list",
+            payload = { data = { chapterListWithVolume = {
+                { { itemId = "71000000017", title = "合法章节" } },
+                injected = { itemId = "71000000018", title = "混入字段" },
+            } } },
+            error_contains = "连续数组",
+        },
+        {
+            name = "sparse chapters inside volume",
+            payload = { data = { chapterListWithVolume = {
+                { chapterList = {
+                    [1] = { itemId = "71000000019", title = "第一章" },
+                    [3] = { itemId = "71000000020", title = "第三章" },
+                } },
+            } } },
+            error_contains = "连续数组",
+        },
+        {
+            name = "sparse flat chapter list",
+            payload = { data = { chapterList = {
+                [1] = { itemId = "71000000021", title = "第一章" },
+                [3] = { itemId = "71000000022", title = "第三章" },
+            } } },
+            error_contains = "连续数组",
+        },
+        {
+            name = "mixed-key id list",
+            payload = { data = { allItemIds = {
+                "71000000023", injected = "71000000024",
+            } } },
+            error_contains = "连续数组",
+        },
     },
     chapters = {
         {
