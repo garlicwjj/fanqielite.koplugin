@@ -36,7 +36,17 @@ koreader/plugins/fanqielite.koplugin/main.lua
 
 首次安装不需要修改 `koreader` 内的其他文件。
 
-如果是升级测试，先把原来的 `fanqielite.koplugin` 完整复制到电脑备份，再只替换这个插件目录。书架设置和章节缓存位于插件目录之外，不要删除。
+如果是升级测试，备份时间不计入首次安装的 5 分钟。先在电脑新建一个带日期的备份文件夹，并把以下仍然存在的项目复制进去：
+
+```text
+koreader/plugins/fanqielite.koplugin
+koreader/settings/fanqielite.lua
+koreader/settings/fanqielite.lua.old
+koreader/fanqielite
+fanqielite-bookshelf.json（如果你曾主动导出）
+```
+
+这里只复制，不要删除 Kindle 上的设置或数据。确认备份完成后，只替换 `koreader/plugins/fanqielite.koplugin` 插件目录；不要把备份文件夹本身复制进 Kindle。
 
 ## 3–4 分钟：安全弹出并重启 KOReader
 
@@ -81,7 +91,9 @@ koreader/plugins/fanqielite.koplugin/main.lua
 
 ## 安全回退与卸载
 
-升级后如需回退：先退出 KOReader，用电脑把 `koreader/plugins/fanqielite.koplugin` 替换为升级前备份，然后重新打开 KOReader。不要同时删除设置或缓存。
+升级后如需回退：先退出 KOReader，首先把 `koreader/plugins/fanqielite.koplugin` 替换为旧版插件。如果旧版能够正常显示书架和阅读，可以保留当前数据，不要额外覆盖。
+
+如果旧版无法读取升级后的设置、书架异常或你需要完整回到升级前状态，请继续退出 KOReader，并从**同一份升级前备份**一起恢复 `koreader/settings/fanqielite.lua`、存在时的 `.old` 文件和 `koreader/fanqielite`。不要混用不同日期的代码、设置与缓存；恢复会丢弃备份时间之后新增的插件书架变化和缓存。
 
 只卸载插件时，仅删除：
 
