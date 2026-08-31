@@ -66,6 +66,35 @@ local function remove_file(path)
     return called and removed and true or false
 end
 
+local function safe_book_directory(storage, book_id, create)
+    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
+        return nil, "缓存标识无效"
+    end
+    local path = storage.root .. "/" .. book_id
+    local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil, "无法读取缓存目录" end
+    if mode == nil then
+        if attributes_err then return nil, "无法读取缓存目录" end
+        if not create then return nil end
+        if not mkdir(path) then return nil, "无法创建缓存目录" end
+        mode = "directory"
+    end
+    if mode ~= "directory" then return nil, "缓存路径不是目录" end
+
+    local root_call, real_root = pcall(ffiUtil.realpath, storage.root)
+    local path_call, real_path = pcall(ffiUtil.realpath, path)
+    if not root_call or type(real_root) ~= "string"
+            or not path_call or type(real_path) ~= "string" then
+        return nil, "无法确认缓存目录安全范围"
+    end
+    real_root = real_root:gsub("/+$", "")
+    real_path = real_path:gsub("/+$", "")
+    if real_path ~= real_root .. "/" .. book_id then
+        return nil, "缓存目录超出插件安全范围，已拒绝操作"
+    end
+    return path
+end
+
 local function verify_chapter_file(path)
     local open_call, file = pcall(io.open, path, "rb")
     if not open_call or not file then return nil, "无法打开章节缓存" end
@@ -83,21 +112,22 @@ function Storage:new()
 end
 
 function Storage:book_dir(book_id)
-    assert(tostring(book_id):match("^%d+$"), "invalid book id")
-    local path = self.root .. "/" .. tostring(book_id)
-    mkdir(path)
-    return path
+    return safe_book_directory(self, tostring(book_id or ""), true)
 end
 
 function Storage:chapter_path(book_id, item_id)
-    assert(tostring(item_id):match("^%d+$"), "invalid item id")
-    return self:book_dir(book_id) .. "/" .. tostring(item_id) .. ".xhtml"
+    item_id = tostring(item_id or "")
+    if not item_id:match("^%d+$") then return nil, "缓存标识无效" end
+    local directory, directory_err = self:book_dir(book_id)
+    if not directory then return nil, directory_err end
+    return directory .. "/" .. item_id .. ".xhtml"
 end
 
 function Storage:write_chapter(book_id, item_id, contents)
     local valid, validation_err = Storage.validate_chapter_contents(contents)
     if not valid then return nil, validation_err end
-    local path = self:chapter_path(book_id, item_id)
+    local path, path_err = self:chapter_path(book_id, item_id)
+    if not path then return nil, path_err end
     local temporary = path .. ".tmp"
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时缓存" end
@@ -141,7 +171,9 @@ function Storage:cached_chapter(book_id, item_id)
     if not book_id:match("^%d+$") or not item_id:match("^%d+$") then
         return nil, "缓存标识无效"
     end
-    local path = self.root .. "/" .. book_id .. "/" .. item_id .. ".xhtml"
+    local directory, directory_err = safe_book_directory(self, book_id, false)
+    if not directory then return nil, directory_err end
+    local path = directory .. "/" .. item_id .. ".xhtml"
     local attributes_call, mode = pcall(lfs.attributes, path, "mode")
     if not attributes_call then return nil, "无法读取缓存状态" end
     if mode == nil then return nil end
@@ -156,7 +188,8 @@ function Storage:prune(book_id, keep, protected_path)
     if not keep or keep ~= keep or keep < 0 or keep ~= math.floor(keep) then
         return nil, "缓存保留数量无效"
     end
-    local path = self:book_dir(book_id)
+    local path, path_err = self:book_dir(book_id)
+    if not path then return nil, path_err end
     local files = {}
     local entries, entries_err = directory_entries(path)
     if not entries then return nil, entries_err end
@@ -194,14 +227,9 @@ function Storage:prune(book_id, keep, protected_path)
 end
 
 function Storage:cached_count(book_id)
-    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
-        return nil, "缓存标识无效"
-    end
-    local path = self.root .. "/" .. book_id
-    local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
-    if not attributes_call then return nil, "无法读取缓存目录" end
-    if mode ~= "directory" then
-        if attributes_err then return nil, "无法读取缓存目录" end
+    local path, path_err = safe_book_directory(self, book_id, false)
+    if not path then
+        if path_err then return nil, path_err end
         return 0
     end
     local entries, entries_err = directory_entries(path)
@@ -214,14 +242,9 @@ function Storage:cached_count(book_id)
 end
 
 function Storage:clear_book(book_id)
-    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
-        return nil, "缓存标识无效"
-    end
-    local path = self.root .. "/" .. book_id
-    local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
-    if not attributes_call then return nil, "无法读取缓存目录" end
-    if mode ~= "directory" then
-        if attributes_err then return nil, "无法读取缓存目录" end
+    local path, path_err = safe_book_directory(self, book_id, false)
+    if not path then
+        if path_err then return nil, path_err end
         return 0
     end
     local entries, entries_err = directory_entries(path)

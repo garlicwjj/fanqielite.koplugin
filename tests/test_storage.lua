@@ -9,6 +9,8 @@ local modification_times = {}
 local sync_ok, sync_error = true, nil
 local directory_sync_calls = 0
 local directory_sync_error = nil
+local realpaths = {}
+local realpath_error = nil
 local names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml.tmp", "notes.txt", "../escape.xhtml" }
 local canary = "FANQIELITE_CACHE_ERROR_CANARY_91af"
 local error_tostring_calls = 0
@@ -29,6 +31,10 @@ package.preload["ffi/util"] = function()
             directory_sync_calls = directory_sync_calls + 1
             if directory_sync_error then error(directory_sync_error) end
             return true
+        end,
+        realpath = function(path)
+            if realpath_error then error(realpath_error) end
+            return realpaths[path] or path
         end,
     }
 end
@@ -82,6 +88,32 @@ assert(#removed == 2, "only owned cache files may be removed")
 assert(removed[1] == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml")
 assert(removed[2] == "/safe-data/fanqielite/7633875868615461950/10000000002.xhtml.tmp")
 assert(rmdir_path == "/safe-data/fanqielite/7633875868615461950")
+
+realpaths["/safe-data/fanqielite/7633875868615461950"] = "/outside/linked-book-cache"
+removed = {}
+os.remove = function(path) removed[#removed + 1] = path; return true end
+local linked_count, linked_err = storage:clear_book("7633875868615461950")
+local linked_directory, linked_directory_err = storage:book_dir("7633875868615461950")
+local linked_cache, linked_cache_err = storage:cached_chapter(
+    "7633875868615461950", "10000000001")
+os.remove = original_remove
+realpaths["/safe-data/fanqielite/7633875868615461950"] = nil
+assert(linked_count == nil, "linked cache directory was accepted for deletion")
+assert(linked_err and linked_err:find("安全范围", 1, true),
+    "linked cache directory rejection was not actionable")
+assert(#removed == 0, "linked cache directory deleted a file outside the owned root")
+assert(linked_directory == nil and linked_directory_err:find("安全范围", 1, true),
+    "linked cache directory was accepted for writing")
+assert(linked_cache == nil and linked_cache_err:find("安全范围", 1, true),
+    "linked cache directory was accepted for reading")
+
+realpath_error = unsafe_error()
+local unresolved, unresolved_err = storage:clear_book("7633875868615461950")
+realpath_error = nil
+assert(unresolved == nil and unresolved_err:find("安全范围", 1, true),
+    "realpath exception did not fail closed")
+assert(not unresolved_err:find(canary, 1, true), "realpath exception leaked raw content")
+assert(error_tostring_calls == 0, "realpath exception invoked __tostring")
 
 local invalid = storage:clear_book("../../outside")
 assert(invalid == nil, "invalid book id accepted")
