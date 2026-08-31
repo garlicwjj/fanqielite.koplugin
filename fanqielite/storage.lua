@@ -66,6 +66,43 @@ local function remove_file(path)
     return called and removed and true or false
 end
 
+local function safe_cache_file(storage, book_id, directory, name)
+    book_id = tostring(book_id or "")
+    if not book_id:match("^%d+$")
+            or type(name) ~= "string" or not name:match("^%d+%.xhtml$") then
+        return nil, "缓存标识无效"
+    end
+    local path = directory .. "/" .. name
+    local root_call, real_root = pcall(ffiUtil.realpath, storage.root)
+    local directory_call, real_directory = pcall(ffiUtil.realpath, directory)
+    local path_call, real_path = pcall(ffiUtil.realpath, path)
+    if not root_call or type(real_root) ~= "string"
+            or not directory_call or type(real_directory) ~= "string"
+            or not path_call or type(real_path) ~= "string" then
+        return nil, "无法确认缓存文件安全范围"
+    end
+    real_root = real_root:gsub("/+$", "")
+    real_directory = real_directory:gsub("/+$", "")
+    real_path = real_path:gsub("/+$", "")
+    if real_directory ~= real_root .. "/" .. book_id
+            or real_path ~= real_directory .. "/" .. name then
+        return nil, "缓存文件超出插件安全范围，已拒绝操作"
+    end
+    return path
+end
+
+local function prepare_temporary(path)
+    local attributes_call, mode = pcall(lfs.symlinkattributes, path, "mode")
+    if not attributes_call then return nil, "无法检查临时缓存" end
+    if mode ~= nil and not remove_file(path) then
+        return nil, "无法清理旧的临时缓存"
+    end
+    local recheck_call, remaining = pcall(lfs.symlinkattributes, path, "mode")
+    if not recheck_call then return nil, "无法复查临时缓存" end
+    if remaining ~= nil then return nil, "临时缓存路径仍被占用" end
+    return true
+end
+
 local function safe_book_directory(storage, book_id, create)
     if type(book_id) ~= "string" or not book_id:match("^%d+$") then
         return nil, "缓存标识无效"
@@ -129,6 +166,8 @@ function Storage:write_chapter(book_id, item_id, contents)
     local path, path_err = self:chapter_path(book_id, item_id)
     if not path then return nil, path_err end
     local temporary = path .. ".tmp"
+    local prepared, prepare_err = prepare_temporary(temporary)
+    if not prepared then return nil, prepare_err end
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时缓存" end
     local write_call, ok = pcall(file.write, file, contents)
@@ -178,6 +217,9 @@ function Storage:cached_chapter(book_id, item_id)
     if not attributes_call then return nil, "无法读取缓存状态" end
     if mode == nil then return nil end
     if mode ~= "file" then return nil, "缓存路径不是普通文件" end
+    local safe_path, file_err = safe_cache_file(self, book_id, directory, item_id .. ".xhtml")
+    if not safe_path then return nil, file_err end
+    path = safe_path
     local valid, validation_err = verify_chapter_file(path)
     if not valid then return nil, validation_err end
     return path
@@ -195,7 +237,8 @@ function Storage:prune(book_id, keep, protected_path)
     if not entries then return nil, entries_err end
     for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then
-            local full = path .. "/" .. name
+            local full, file_err = safe_cache_file(self, book_id, path, name)
+            if not full then return nil, file_err end
             local attributes_call, modified = pcall(lfs.attributes, full, "modification")
             if not attributes_call then return nil, "无法读取缓存文件状态" end
             files[#files + 1] = {
