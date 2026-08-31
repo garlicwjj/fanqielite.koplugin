@@ -5,10 +5,18 @@ local infos = {}
 local network_error
 local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
 local tostring_calls = 0
+local network_manager_mode = "success"
+local trapper_mode = "success"
 
 local NetworkMgr = {
     runWhenOnline = function(_, callback)
         online_calls = online_calls + 1
+        if network_manager_mode == "throw" then
+            error(setmetatable({}, { __tostring = function()
+                tostring_calls = tostring_calls + 1
+                return credential_canary
+            end }))
+        end
         callback()
     end,
 }
@@ -16,10 +24,22 @@ local NetworkMgr = {
 local Trapper = {
     wrap = function(_, callback)
         wrap_calls = wrap_calls + 1
+        if trapper_mode == "wrap_throw" then
+            error(setmetatable({}, { __tostring = function()
+                tostring_calls = tostring_calls + 1
+                return credential_canary
+            end }))
+        end
         callback()
     end,
     reset = function()
         reset_calls = reset_calls + 1
+        if trapper_mode == "reset_throw" then
+            error(setmetatable({}, { __tostring = function()
+                tostring_calls = tostring_calls + 1
+                return credential_canary
+            end }))
+        end
     end,
 }
 
@@ -127,6 +147,44 @@ assert(tostring_calls == 0, "unexpected failure invoked __tostring")
 assert(not failed:find("test_network_flow.lua", 1, true), "failure leaked a Lua file path")
 assert(plugin.network_busy == false, "network gate remained active after failure")
 assert(reset_calls == 5, "Trapper was not reset after every completed wrapper")
+
+network_manager_mode = "throw"
+local manager_contained = pcall(function()
+    plugin:with_network(function() error("must not run") end)
+end)
+assert(manager_contained, "network manager exception escaped the plugin boundary")
+local manager_failure = infos[#infos]
+assert(manager_failure:find("无法启动安全的网络操作", 1, true),
+    "network manager exception did not use a fixed recovery message")
+assert(not manager_failure:find(credential_canary, 1, true), "network manager exception leaked")
+assert(tostring_calls == 0, "network manager exception invoked __tostring")
+assert(plugin.network_busy == false, "network manager exception left the busy gate active")
+network_manager_mode = "success"
+
+trapper_mode = "wrap_throw"
+local wrapper_contained = pcall(function()
+    plugin:with_network(function() error("must not run") end)
+end)
+assert(wrapper_contained, "Trapper wrapper exception escaped the plugin boundary")
+local wrapper_failure = infos[#infos]
+assert(wrapper_failure:find("无法启动安全的网络操作", 1, true),
+    "Trapper wrapper exception did not use a fixed recovery message")
+assert(not wrapper_failure:find(credential_canary, 1, true), "Trapper wrapper exception leaked")
+assert(tostring_calls == 0, "Trapper wrapper exception invoked __tostring")
+assert(plugin.network_busy == false, "Trapper wrapper exception left the busy gate active")
+
+trapper_mode = "reset_throw"
+local reset_contained = pcall(function()
+    plugin:with_network(function() end)
+end)
+assert(reset_contained, "Trapper reset exception escaped the plugin boundary")
+local reset_failure = infos[#infos]
+assert(reset_failure:find("无法启动安全的网络操作", 1, true),
+    "Trapper reset exception did not use a fixed recovery message")
+assert(not reset_failure:find(credential_canary, 1, true), "Trapper reset exception leaked")
+assert(tostring_calls == 0, "Trapper reset exception invoked __tostring")
+assert(plugin.network_busy == false, "Trapper reset exception left the busy gate active")
+trapper_mode = "success"
 
 local no_directory = plugin:book_local_status({ chapters = {} }, 0, 1000)
 assert(no_directory:find("尚未获取目录", 1, true), "missing directory state not explained")

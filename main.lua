@@ -206,16 +206,27 @@ function FanqieLite:save_state(force)
 end
 
 function FanqieLite:with_network(callback)
-    NetworkMgr:runWhenOnline(function()
+    local function boundary_failure()
+        self.network_busy = false
+        self:info("无法启动安全的网络操作。为避免显示不受信任的错误内容，详细信息已隐藏。"
+            .. "\n\n本地书架、阅读进度和缓存没有改变。"
+            .. "请返回本地书架后重试；若持续出现，请重启 KOReader。")
+    end
+
+    local manager_ok = pcall(NetworkMgr.runWhenOnline, NetworkMgr, function()
         if self.network_busy then
             self:info("已有网络操作正在进行，请先完成或点按取消。", 3)
             return
         end
         self.network_busy = true
-        Trapper:wrap(function()
+        local wrapped_ok = pcall(Trapper.wrap, Trapper, function()
             local ok, err = pcall(callback)
             self.network_busy = false
-            Trapper:reset()
+            local reset_ok = pcall(Trapper.reset, Trapper)
+            if not reset_ok then
+                boundary_failure()
+                return
+            end
             if not ok then
                 local message = user_error_messages[err]
                 if not message then
@@ -225,7 +236,13 @@ function FanqieLite:with_network(callback)
                 self:info("操作未完成：\n" .. message)
             end
         end)
+        if not wrapped_ok then
+            self.network_busy = false
+            pcall(Trapper.reset, Trapper)
+            boundary_failure()
+        end
     end)
+    if not manager_ok then boundary_failure() end
 end
 
 function FanqieLite:fetch_book(book_id)
