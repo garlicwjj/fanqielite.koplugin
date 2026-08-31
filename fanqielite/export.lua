@@ -1,6 +1,7 @@
 local ffiUtil = require("ffi/util")
 local Import = require("fanqielite.import")
 local rapidjson = require("rapidjson")
+local SafeTemporary = require("fanqielite.safetemporary")
 
 local Export = {}
 
@@ -87,6 +88,8 @@ function Export.write(path, library, exported_at)
     end
 
     local temporary = path .. ".tmp"
+    local prepared, prepare_err = SafeTemporary.prepare(temporary, "临时导出文件")
+    if not prepared then return nil, prepare_err end
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时导出文件" end
     local write_call, wrote = pcall(file.write, file, contents)

@@ -1,6 +1,7 @@
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
+local SafeTemporary = require("fanqielite.safetemporary")
 
 local Storage = {}
 Storage.__index = Storage
@@ -91,18 +92,6 @@ local function safe_cache_file(storage, book_id, directory, name)
     return path
 end
 
-local function prepare_temporary(path)
-    local attributes_call, mode = pcall(lfs.symlinkattributes, path, "mode")
-    if not attributes_call then return nil, "无法检查临时缓存" end
-    if mode ~= nil and not remove_file(path) then
-        return nil, "无法清理旧的临时缓存"
-    end
-    local recheck_call, remaining = pcall(lfs.symlinkattributes, path, "mode")
-    if not recheck_call then return nil, "无法复查临时缓存" end
-    if remaining ~= nil then return nil, "临时缓存路径仍被占用" end
-    return true
-end
-
 local function safe_book_directory(storage, book_id, create)
     if type(book_id) ~= "string" or not book_id:match("^%d+$") then
         return nil, "缓存标识无效"
@@ -166,7 +155,7 @@ function Storage:write_chapter(book_id, item_id, contents)
     local path, path_err = self:chapter_path(book_id, item_id)
     if not path then return nil, path_err end
     local temporary = path .. ".tmp"
-    local prepared, prepare_err = prepare_temporary(temporary)
+    local prepared, prepare_err = SafeTemporary.prepare(temporary, "临时缓存")
     if not prepared then return nil, prepare_err end
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时缓存" end

@@ -26,10 +26,18 @@ package.preload["dump"] = function()
 end
 
 local sync_ok, sync_err = true, nil
+local symlink_modes = {}
 package.preload["ffi/util"] = function()
     return {
         fsyncOpenedFile = function() return sync_ok, sync_err end,
         fsyncDirectory = function() return true end,
+    }
+end
+package.preload["libs/libkoreader-lfs"] = function()
+    return {
+        symlinkattributes = function(path, attribute)
+            if attribute == "mode" then return symlink_modes[path] end
+        end,
     }
 end
 
@@ -52,6 +60,7 @@ assert(Persistence.equal(backup, previous), "backup does not contain previous st
 
 local original_open = io.open
 local original_rename = os.rename
+local original_remove = os.remove
 local main_rename_called = false
 local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
 local error_tostring_calls = 0
@@ -61,6 +70,29 @@ local function unsafe_error()
         return canary
     end })
 end
+
+local linked_path = base .. "-linked.lua"
+local linked_temporary = linked_path .. ".tmp"
+symlink_modes[linked_temporary] = "link"
+local linked_removed = false
+io.open = function(filename, mode)
+    assert(filename ~= linked_temporary or mode ~= "wb" or symlink_modes[filename] == nil,
+        "linked settings temporary was opened before removal")
+    return original_open(filename, mode)
+end
+os.remove = function(filename)
+    if filename == linked_temporary then
+        linked_removed = true
+        symlink_modes[filename] = nil
+        return true
+    end
+    return original_remove(filename)
+end
+local linked_written = assert(Persistence.write(linked_path, candidate, nil))
+io.open = original_open
+os.remove = original_remove
+assert(linked_written and linked_removed, "linked settings temporary was not safely replaced")
+
 io.open = function(filename, mode)
     if filename == path .. ".tmp" and mode == "wb" then
         return {
@@ -183,5 +215,7 @@ os.remove(rename_path)
 os.remove(rename_path .. ".tmp")
 os.remove(base .. "-encode.lua")
 os.remove(base .. "-encode.lua.tmp")
+os.remove(linked_path)
+os.remove(linked_temporary)
 
 print("persistence tests passed")

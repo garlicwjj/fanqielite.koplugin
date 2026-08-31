@@ -1,5 +1,6 @@
 local dump = require("dump")
 local ffiUtil = require("ffi/util")
+local SafeTemporary = require("fanqielite.safetemporary")
 
 local Persistence = {}
 
@@ -102,6 +103,8 @@ local function atomic_write(path, data)
         return nil, "无法序列化插件设置"
     end
     local temporary = path .. ".tmp"
+    local prepared, prepare_err = SafeTemporary.prepare(temporary, "临时设置文件")
+    if not prepared then return nil, prepare_err end
     local open_call, file = pcall(io.open, temporary, "wb")
     if not open_call or not file then return nil, "无法创建临时设置文件" end
 
