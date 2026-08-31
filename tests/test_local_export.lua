@@ -14,10 +14,18 @@ local function unsafe_filesystem_error()
 end
 local decode_handler
 local sync_ok, sync_err = true, nil
+local symlink_modes = {}
 package.preload["ffi/util"] = function()
     return {
         fsyncOpenedFile = function() return sync_ok, sync_err end,
         fsyncDirectory = function() return true end,
+    }
+end
+package.preload["libs/libkoreader-lfs"] = function()
+    return {
+        symlinkattributes = function(path, attribute)
+            if attribute == "mode" then return symlink_modes[path] end
+        end,
     }
 end
 package.preload["rapidjson"] = function()
@@ -90,6 +98,29 @@ local verified = assert(Import.read_file(path))
 assert(#verified == 2, "written export did not pass import validation")
 assert(io.open(path .. ".tmp", "rb") == nil, "temporary export was left behind")
 
+local real_open = io.open
+local real_remove = os.remove
+local linked_temporary = path .. ".tmp"
+symlink_modes[linked_temporary] = "link"
+local linked_removed = false
+io.open = function(target, mode)
+    assert(target ~= linked_temporary or mode ~= "wb" or symlink_modes[target] == nil,
+        "linked export temporary was opened before removal")
+    return real_open(target, mode)
+end
+os.remove = function(target)
+    if target == linked_temporary then
+        linked_removed = true
+        symlink_modes[target] = nil
+        return true
+    end
+    return real_remove(target)
+end
+local linked_count = assert(Export.write(path, library, "2026-08-17T12:00:00Z"))
+io.open = real_open
+os.remove = real_remove
+assert(linked_count == 2 and linked_removed, "linked export temporary was not safely replaced")
+
 encode_error = setmetatable({}, { __tostring = function()
     encode_tostring_calls = encode_tostring_calls + 1
     return "encoder exposed FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
@@ -133,7 +164,6 @@ assert(preserved:read("*a") == encoded_contents, "failed export replaced old fil
 preserved:close()
 assert(io.open(path .. ".tmp", "rb") == nil, "failed export left a temporary file")
 
-local real_open = io.open
 io.open = function(target, mode)
     if target == path .. ".tmp" and mode == "wb" then error(unsafe_filesystem_error()) end
     return real_open(target, mode)
@@ -159,7 +189,6 @@ assert(write_failed == nil and write_err:find("写入临时导出文件失败", 
 assert(not write_err:find(filesystem_canary, 1, true), "export write leaked raw content")
 assert(filesystem_tostring_calls == 0, "export write invoked __tostring")
 
-local real_remove = os.remove
 io.open = function(target, mode)
     if target == path .. ".tmp" and mode == "wb" then
         return {

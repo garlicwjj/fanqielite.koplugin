@@ -60,6 +60,7 @@ fanqielite.koplugin/fanqielite/parser.lua
 fanqielite.koplugin/fanqielite/persistence.lua
 fanqielite.koplugin/fanqielite/pua.lua
 fanqielite.koplugin/fanqielite/qrdisplay.lua
+fanqielite.koplugin/fanqielite/safetemporary.lua
 fanqielite.koplugin/fanqielite/search.lua
 fanqielite.koplugin/fanqielite/storage.lua
 fanqielite.koplugin/fanqielite/verified_tls.lua
