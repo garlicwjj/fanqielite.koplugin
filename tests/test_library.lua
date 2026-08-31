@@ -78,6 +78,26 @@ equal(#invalid.books, 1, "invalid book rejected")
 equal(#invalid.books[1].chapters, 1, "invalid and duplicate chapters rejected")
 equal(invalid.books[1].current_index, 1, "progress clamped")
 
+local sparse, sparse_changed = Library.load({
+    version = 1,
+    books = {
+        [1] = {
+            id = "7134567890123456789", title = "稀疏书籍一", chapters = {
+                [1] = chapter("50000000001", "第一章"),
+                [3] = chapter("50000000003", "第三章"),
+            },
+        },
+        [3] = { id = "7134567890123456790", title = "稀疏书籍二" },
+        unexpected = "must not become a book",
+    },
+}, nil, nil, nil, 650)
+equal(sparse_changed, true, "sparse saved state not marked for normalization")
+equal(#sparse.books, 2, "sparse saved books were silently truncated")
+equal(sparse.books[1].id, "7134567890123456789", "first sparse book changed")
+equal(sparse.books[2].id, "7134567890123456790", "later sparse book was not recovered")
+equal(#sparse.books[1].chapters, 2, "sparse saved chapters were silently truncated")
+equal(sparse.books[1].chapters[2].id, "50000000003", "later sparse chapter was not recovered")
+
 local missing, err = Library.upsert(invalid, { id = "bad" }, {}, nil, 700)
 equal(missing, nil, "invalid upsert rejected")
 assert(err:find("ID", 1, true), "invalid upsert error missing")

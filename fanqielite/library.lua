@@ -14,10 +14,28 @@ local function clean_text(value, fallback, maximum)
     return text
 end
 
+local function ordered_numeric_keys(value)
+    local keys, changed = {}, false
+    if type(value) ~= "table" then return keys, value ~= nil end
+    for key in pairs(value) do
+        if type(key) == "number" and key >= 1 and key == math.floor(key) then
+            keys[#keys + 1] = key
+        else
+            changed = true
+        end
+    end
+    table.sort(keys)
+    for index, key in ipairs(keys) do
+        if key ~= index then changed = true end
+    end
+    return keys, changed
+end
+
 local function normalize_chapters(chapters)
     local output, seen = {}, {}
-    if type(chapters) ~= "table" then return output end
-    for _, chapter in ipairs(chapters) do
+    local keys, changed = ordered_numeric_keys(chapters)
+    for _, key in ipairs(keys) do
+        local chapter = chapters[key]
         local id = type(chapter) == "table" and valid_id(chapter.id) or nil
         if id and not seen[id] then
             output[#output + 1] = {
@@ -26,17 +44,19 @@ local function normalize_chapters(chapters)
                 index = tonumber(chapter.index) or (#output + 1),
             }
             seen[id] = true
+        else
+            changed = true
         end
     end
-    return output
+    return output, changed
 end
 
 local function normalize_book(record, now)
-    if type(record) ~= "table" then return nil end
+    if type(record) ~= "table" then return nil, true end
     local source = type(record.book) == "table" and record.book or record
     local id = valid_id(source.id)
-    if not id then return nil end
-    local chapters = normalize_chapters(record.chapters)
+    if not id then return nil, true end
+    local chapters, changed = normalize_chapters(record.chapters)
     local directory_updated_at = tonumber(record.directory_updated_at) or 0
     if directory_updated_at ~= directory_updated_at or directory_updated_at < 0 then
         directory_updated_at = 0
@@ -69,7 +89,7 @@ local function normalize_book(record, now)
             output.imported_progress.position = position
         end
     end
-    return output
+    return output, changed
 end
 
 function Library.new()
@@ -89,18 +109,27 @@ function Library.load(saved, legacy_book, legacy_chapters, legacy_index, now)
     local library = Library.new()
     local changed = type(saved) ~= "table" or saved.version ~= Library.VERSION
     if type(saved) == "table" then
-        if saved.sort == "title" or saved.sort == "added" then library.sort = saved.sort end
+        if saved.sort == "title" or saved.sort == "added" then
+            library.sort = saved.sort
+        elseif saved.sort ~= nil and saved.sort ~= "recent" then
+            changed = true
+        end
         if type(saved.books) == "table" then
             local seen = {}
-            for _, record in ipairs(saved.books) do
-                local book = normalize_book(record, now)
+            local keys, books_changed = ordered_numeric_keys(saved.books)
+            if books_changed then changed = true end
+            for _, key in ipairs(keys) do
+                local book, book_changed = normalize_book(saved.books[key], now)
                 if book and not seen[book.id] then
                     library.books[#library.books + 1] = book
                     seen[book.id] = true
                 else
                     changed = true
                 end
+                if book_changed then changed = true end
             end
+        elseif saved.books ~= nil then
+            changed = true
         end
     end
 
