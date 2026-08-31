@@ -460,7 +460,11 @@ function FanqieLite:show_settings()
         { text = _("导出本地书架"), callback = function() self:prepare_local_export() end },
         {
             text = _("缓存管理说明"), callback = function()
-                self:info("每本书最多保留 12 个章节缓存；写入新章节后会优先清理较早写入的缓存。\n\n清理入口位于对应书籍页面；清理缓存不会删除书籍、目录或阅读进度。离线时只能打开仍有完整缓存的章节。")
+                self:info("每本书最多保留 12 个章节缓存；写入新章节后会优先清理较早写入的缓存。\n\n"
+                    .. "清理入口位于对应书籍页面；移除书籍后也会另行询问是否立即清理。"
+                    .. "两项操作独立确认，选择保留时以后重新添加同一本书仍可复用。\n\n"
+                    .. "清理只删除插件安全目录内的数字 XHTML 缓存；KOReader .sdr 阅读位置和未知文件保留。"
+                    .. "离线时只能打开仍有完整缓存的章节。")
             end,
         },
         {
@@ -580,8 +584,12 @@ end
 function FanqieLite:confirm_remove(book_id)
     local book = Library.find(self.library, book_id)
     if not book then return end
+    local cached_count = self.storage:cached_count(book_id)
     UIManager:show(ConfirmBox:new{
-        text = "确定从本地书架移除《" .. book.title .. "》吗？\n\n已缓存章节不会同时删除，可稍后单独清理。",
+        text = "确定从本地书架移除《" .. book.title .. "》吗？\n\n"
+            .. "移除只删除本地书架记录，不会同时删除缓存。"
+            .. "移除后可选择是否立即清理；选择保留时，"
+            .. "以后重新添加同一本书仍可复用完整缓存。",
         ok_text = _("移除"),
         ok_callback = function()
             Library.remove(self.library, book_id)
@@ -590,10 +598,47 @@ function FanqieLite:confirm_remove(book_id)
             end
             local saved, save_err = self:save_state()
             if not saved then self:info(save_err); return end
-            self:info("已从本地书架移除", 2)
-            UIManager:nextTick(function() self:show_home() end)
+            UIManager:nextTick(function()
+                self:show_home()
+                self:offer_removed_cache_cleanup(book.id, book.title, cached_count)
+            end)
         end,
     })
+end
+
+function FanqieLite:offer_removed_cache_cleanup(book_id, title, cached_count)
+    if cached_count == 0 then
+        self:info("已从本地书架移除；该书没有章节缓存需要清理。", 3)
+        return
+    end
+    local cache_text = type(cached_count) == "number"
+        and ("检测到 " .. tostring(cached_count) .. " 个章节缓存。")
+        or "缓存数量暂时无法读取。"
+    UIManager:show(ConfirmBox:new{
+        text = "已从本地书架移除《" .. title .. "》。\n\n" .. cache_text
+            .. "是否现在清理该书的数字 XHTML 章节缓存？\n\n"
+            .. "取消将保留缓存，以后重新添加同一本书时仍可复用。"
+            .. "KOReader .sdr 阅读位置和未知文件不会被删除。",
+        ok_text = _("清理缓存"),
+        ok_callback = function() self:clear_removed_book_cache(book_id) end,
+    })
+end
+
+function FanqieLite:clear_removed_book_cache(book_id)
+    local count, err = self.storage:clear_book(book_id)
+    if not count then
+        self:info("已移除书籍，但缓存清理失败：" .. cache_error_detail(err)
+            .. "\n\n其他书籍、缓存和阅读进度没有改变。"
+            .. "如需重试，可重新添加同一本书后进入其缓存清理入口。")
+        return
+    end
+    if err then
+        self:info("书籍已移除，缓存只完成了部分清理：\n" .. cache_error_detail(err)
+            .. "\n\n其他书籍与数据没有改变；.sdr 和未知文件仍保留。")
+        return
+    end
+    self:info("已清理 " .. tostring(count)
+        .. " 个章节缓存；KOReader .sdr 阅读位置和未知文件仍保留。", 5)
 end
 
 function FanqieLite:confirm_clear_cache(book_id)
