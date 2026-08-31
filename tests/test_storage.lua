@@ -11,6 +11,7 @@ local directory_sync_calls = 0
 local directory_sync_error = nil
 local realpaths = {}
 local realpath_error = nil
+local symlink_modes = {}
 local names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml.tmp", "notes.txt", "../escape.xhtml" }
 local canary = "FANQIELITE_CACHE_ERROR_CANARY_91af"
 local error_tostring_calls = 0
@@ -50,6 +51,10 @@ package.preload["libs/libkoreader-lfs"] = function()
                     and attribute == "mode" then
                 return cached_mode
             end
+        end,
+        symlinkattributes = function(path, attribute)
+            if attribute_error then error(attribute_error) end
+            if attribute == "mode" then return symlink_modes[path] end
         end,
         dir = function()
             if dir_error then error(dir_error) end
@@ -190,6 +195,20 @@ os.remove = original_remove
 assert(protected_pruned == 1 and protected_err == nil, "protected prune count is wrong")
 assert(removed[1] ~= protected_path, "newly written chapter was evicted by an older timestamp")
 
+names = { ".", "..", "10000000001.xhtml" }
+cached_mode = "file"
+local linked_file = "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
+realpaths[linked_file] = "/outside/private.xhtml"
+modification_times = { [linked_file] = 100 }
+removed = {}
+os.remove = function(path) removed[#removed + 1] = path; return true end
+local linked_pruned, linked_prune_err = storage:prune("7633875868615461950", 0)
+os.remove = original_remove
+assert(linked_pruned == nil and linked_prune_err:find("安全范围", 1, true),
+    "linked chapter cache was accepted for eviction inspection")
+assert(#removed == 0, "linked chapter cache was selected for eviction")
+realpaths[linked_file] = nil
+
 local valid_xhtml = '<?xml version="1.0" encoding="utf-8"?>\n'
     .. '<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN">'
     .. '<head><meta charset="utf-8"/></head><body><p>正文</p></body></html>'
@@ -219,6 +238,19 @@ io.open = function()
 end
 local cached_path = assert(storage:cached_chapter("7633875868615461950", "10000000001"))
 assert(cached_path == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml")
+
+realpaths[cached_path] = "/outside/private.xhtml"
+local linked_opened = false
+io.open = function()
+    linked_opened = true
+    error("linked cache must not be opened")
+end
+local linked_chapter, linked_chapter_err = storage:cached_chapter(
+    "7633875868615461950", "10000000001")
+realpaths[cached_path] = nil
+assert(linked_chapter == nil and linked_chapter_err:find("安全范围", 1, true),
+    "linked chapter cache was accepted for reading")
+assert(not linked_opened, "linked chapter cache was opened before its real path was checked")
 
 io.open = function()
     return {
@@ -261,6 +293,65 @@ assert(close_err:find("无法关闭章节缓存", 1, true), "cache close failure
 assert(not close_err:find(canary, 1, true), "cache close error leaked raw content")
 assert(error_tostring_calls == 0, "cache close error invoked __tostring")
 
+storage.chapter_path = function()
+    return "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
+end
+
+local linked_temporary = "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml.tmp"
+symlink_modes[linked_temporary] = "link"
+local linked_temporary_removed = false
+io.open = function(path)
+    assert(path ~= linked_temporary or symlink_modes[path] == nil,
+        "linked temporary cache was opened before its directory entry was removed")
+    return {
+        write = function() return true end,
+        read = function() return valid_xhtml end,
+        close = function() return true end,
+    }
+end
+os.remove = function(path)
+    if path == linked_temporary then
+        linked_temporary_removed = true
+        symlink_modes[path] = nil
+    end
+    return true
+end
+os.rename = function() return true end
+local replaced_link = assert(storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml))
+assert(replaced_link:match("10000000001%.xhtml$"), "safe cache write returned the wrong path")
+assert(linked_temporary_removed, "existing linked temporary cache was not removed before writing")
+io.open = original_open
+os.rename = original_rename
+os.remove = original_remove
+
+attribute_error = unsafe_error()
+local unchecked_temporary, unchecked_temporary_err = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+attribute_error = nil
+assert(unchecked_temporary == nil and unchecked_temporary_err:find("无法检查临时缓存", 1, true),
+    "temporary cache inspection exception did not fail closed")
+assert(not unchecked_temporary_err:find(canary, 1, true),
+    "temporary cache inspection leaked raw content")
+assert(error_tostring_calls == 0, "temporary cache inspection invoked __tostring")
+
+symlink_modes[linked_temporary] = "link"
+io.open = function() error("occupied temporary cache must not be opened") end
+os.remove = function() return nil end
+local uncleared_temporary, uncleared_temporary_err = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+assert(uncleared_temporary == nil and uncleared_temporary_err:find("无法清理", 1, true),
+    "failed temporary cache removal was accepted")
+
+os.remove = function() return true end
+local occupied_temporary, occupied_temporary_err = storage:write_chapter(
+    "7633875868615461950", "10000000001", valid_xhtml)
+assert(occupied_temporary == nil and occupied_temporary_err:find("仍被占用", 1, true),
+    "temporary cache remaining after removal was accepted")
+symlink_modes[linked_temporary] = nil
+io.open = original_open
+os.remove = original_remove
+
 local temporary_removed = false
 io.open = function()
     return {
@@ -269,16 +360,10 @@ io.open = function()
     }
 end
 os.remove = function(path)
-    if path == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml.tmp" then
-        temporary_removed = true
-    end
+    if path == linked_temporary then temporary_removed = true end
     return true
 end
 os.rename = function() error("rename must not run after close failure") end
-storage.chapter_path = function()
-    return "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
-end
-
 local written, write_err = storage:write_chapter("7633875868615461950", "10000000001", valid_xhtml)
 io.open = original_open
 os.rename = original_rename
@@ -399,6 +484,7 @@ os.rename = original_rename
 os.remove = original_remove
 
 local original_prune = storage.prune
+local directory_sync_before = directory_sync_calls
 local success_open_count = 0
 io.open = function()
     success_open_count = success_open_count + 1
@@ -433,7 +519,8 @@ assert(safe_write_err == nil, "successful cache write returned an error")
 assert(write_protected_path == safe_path, "newly written cache was not protected during eviction")
 assert(prune_warning and prune_warning:find("2 个旧缓存无法删除", 1, true),
     "cache eviction warning was hidden after successful write")
-assert(directory_sync_calls == 1, "cache directory sync was not attempted after rename")
+assert(directory_sync_calls == directory_sync_before + 1,
+    "cache directory sync was not attempted after rename")
 assert(error_tostring_calls == 0, "directory sync error invoked __tostring")
 
 print("storage tests passed")
