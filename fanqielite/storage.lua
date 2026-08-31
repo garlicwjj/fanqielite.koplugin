@@ -67,6 +67,25 @@ local function remove_file(path)
     return called and removed and true or false
 end
 
+local function safe_storage_root(storage)
+    if type(storage.parent) ~= "string" or storage.parent == ""
+            or type(storage.root) ~= "string" or storage.root == "" then
+        return nil, "缓存根目录配置无效"
+    end
+    local parent_call, real_parent = pcall(ffiUtil.realpath, storage.parent)
+    local root_call, real_root = pcall(ffiUtil.realpath, storage.root)
+    if not parent_call or type(real_parent) ~= "string"
+            or not root_call or type(real_root) ~= "string" then
+        return nil, "无法确认缓存根目录安全范围"
+    end
+    real_parent = real_parent:gsub("/+$", "")
+    real_root = real_root:gsub("/+$", "")
+    if real_root ~= real_parent .. "/fanqielite" then
+        return nil, "缓存根目录超出插件安全范围，已拒绝操作"
+    end
+    return real_root
+end
+
 local function safe_cache_file(storage, book_id, directory, name)
     book_id = tostring(book_id or "")
     if not book_id:match("^%d+$")
@@ -74,15 +93,14 @@ local function safe_cache_file(storage, book_id, directory, name)
         return nil, "缓存标识无效"
     end
     local path = directory .. "/" .. name
-    local root_call, real_root = pcall(ffiUtil.realpath, storage.root)
+    local real_root, root_err = safe_storage_root(storage)
+    if not real_root then return nil, root_err end
     local directory_call, real_directory = pcall(ffiUtil.realpath, directory)
     local path_call, real_path = pcall(ffiUtil.realpath, path)
-    if not root_call or type(real_root) ~= "string"
-            or not directory_call or type(real_directory) ~= "string"
+    if not directory_call or type(real_directory) ~= "string"
             or not path_call or type(real_path) ~= "string" then
         return nil, "无法确认缓存文件安全范围"
     end
-    real_root = real_root:gsub("/+$", "")
     real_directory = real_directory:gsub("/+$", "")
     real_path = real_path:gsub("/+$", "")
     if real_directory ~= real_root .. "/" .. book_id
@@ -96,6 +114,8 @@ local function safe_book_directory(storage, book_id, create)
     if type(book_id) ~= "string" or not book_id:match("^%d+$") then
         return nil, "缓存标识无效"
     end
+    local real_root, root_err = safe_storage_root(storage)
+    if not real_root then return nil, root_err end
     local path = storage.root .. "/" .. book_id
     local attributes_call, mode, attributes_err = pcall(lfs.attributes, path, "mode")
     if not attributes_call then return nil, "无法读取缓存目录" end
@@ -107,13 +127,10 @@ local function safe_book_directory(storage, book_id, create)
     end
     if mode ~= "directory" then return nil, "缓存路径不是目录" end
 
-    local root_call, real_root = pcall(ffiUtil.realpath, storage.root)
     local path_call, real_path = pcall(ffiUtil.realpath, path)
-    if not root_call or type(real_root) ~= "string"
-            or not path_call or type(real_path) ~= "string" then
+    if not path_call or type(real_path) ~= "string" then
         return nil, "无法确认缓存目录安全范围"
     end
-    real_root = real_root:gsub("/+$", "")
     real_path = real_path:gsub("/+$", "")
     if real_path ~= real_root .. "/" .. book_id then
         return nil, "缓存目录超出插件安全范围，已拒绝操作"
@@ -132,9 +149,10 @@ local function verify_chapter_file(path)
 end
 
 function Storage:new()
-    local root = DataStorage:getDataDir() .. "/fanqielite"
+    local parent = DataStorage:getDataDir():gsub("/+$", "")
+    local root = parent .. "/fanqielite"
     mkdir(root)
-    return setmetatable({ root = root }, self)
+    return setmetatable({ root = root, parent = parent }, self)
 end
 
 function Storage:book_dir(book_id)

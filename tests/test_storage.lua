@@ -2,6 +2,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local removed, rmdir_path = {}, nil
 local cached_mode = nil
+local book_mode = "directory"
+local mkdir_paths = {}
 local dir_error = nil
 local attribute_error = nil
 local dir_iteration_error = nil
@@ -45,7 +47,7 @@ package.preload["libs/libkoreader-lfs"] = function()
             if attribute_error then error(attribute_error) end
             if attribute == "modification" then return modification_times[path] end
             if path == "/safe-data/fanqielite/7633875868615461950" and attribute == "mode" then
-                return "directory"
+                return book_mode
             end
             if path == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
                     and attribute == "mode" then
@@ -65,7 +67,7 @@ package.preload["libs/libkoreader-lfs"] = function()
                 return names[index]
             end
         end,
-        mkdir = function() return true end,
+        mkdir = function(path) mkdir_paths[#mkdir_paths + 1] = path; return true end,
         rmdir = function(path) rmdir_path = path; return true end,
     }
 end
@@ -77,7 +79,10 @@ os.remove = function(path)
 end
 
 local Storage = require("fanqielite.storage")
-local storage = setmetatable({ root = "/safe-data/fanqielite" }, { __index = Storage })
+local storage = setmetatable({
+    root = "/safe-data/fanqielite",
+    parent = "/safe-data",
+}, { __index = Storage })
 
 assert(Storage.is_cache_name("10000000001.xhtml"), "chapter cache name rejected")
 assert(Storage.is_cache_name("10000000001.xhtml.tmp"), "temporary cache name rejected")
@@ -93,6 +98,43 @@ assert(#removed == 2, "only owned cache files may be removed")
 assert(removed[1] == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml")
 assert(removed[2] == "/safe-data/fanqielite/7633875868615461950/10000000002.xhtml.tmp")
 assert(rmdir_path == "/safe-data/fanqielite/7633875868615461950")
+
+realpaths["/safe-data/fanqielite"] = "/outside/shared-cache"
+realpaths["/safe-data/fanqielite/7633875868615461950"] =
+    "/outside/shared-cache/7633875868615461950"
+realpaths["/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"] =
+    "/outside/shared-cache/7633875868615461950/10000000001.xhtml"
+removed = {}
+mkdir_paths = {}
+book_mode = nil
+cached_mode = "file"
+local linked_root_opened = false
+local root_original_open = io.open
+io.open = function()
+    linked_root_opened = true
+    error("linked cache root must not be opened")
+end
+os.remove = function(path) removed[#removed + 1] = path; return true end
+local linked_root_count, linked_root_err = storage:clear_book("7633875868615461950")
+local linked_root_directory, linked_root_directory_err = storage:book_dir("7633875868615461950")
+local linked_root_cache, linked_root_cache_err = storage:cached_chapter(
+    "7633875868615461950", "10000000001")
+os.remove = original_remove
+io.open = root_original_open
+realpaths["/safe-data/fanqielite"] = nil
+realpaths["/safe-data/fanqielite/7633875868615461950"] = nil
+realpaths["/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"] = nil
+book_mode = "directory"
+cached_mode = nil
+assert(linked_root_count == nil and linked_root_err:find("安全范围", 1, true),
+    "linked cache root was accepted for deletion")
+assert(linked_root_directory == nil and linked_root_directory_err:find("安全范围", 1, true),
+    "linked cache root was accepted for writing")
+assert(linked_root_cache == nil and linked_root_cache_err:find("安全范围", 1, true),
+    "linked cache root was accepted for reading")
+assert(#removed == 0, "linked cache root deleted files outside the owned data directory")
+assert(#mkdir_paths == 0, "linked cache root created a book directory outside the owned data directory")
+assert(not linked_root_opened, "linked cache root opened a file outside the owned data directory")
 
 realpaths["/safe-data/fanqielite/7633875868615461950"] = "/outside/linked-book-cache"
 removed = {}
