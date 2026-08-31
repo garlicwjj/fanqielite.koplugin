@@ -73,6 +73,8 @@ end
 
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
+    local loaded_settings = type(self.settings.data) == "table"
+        and Persistence.copy(self.settings.data) or nil
     self.storage = Storage:new()
     local changed
     self.library, changed = Library.load(
@@ -85,7 +87,11 @@ function FanqieLite:init()
         self.active_book_id = self.library.books[1] and self.library.books[1].id or nil
         changed = true
     end
-    self.persisted_settings = self:state_table()
+    local normalized_settings = self:state_table()
+    self.persisted_settings = changed and loaded_settings or normalized_settings
+    if type(self.persisted_settings) ~= "table" then
+        self.persisted_settings = normalized_settings
+    end
     if changed then
         local saved, save_err = self:save_state(true)
         if not saved then self.startup_save_error = save_err end
