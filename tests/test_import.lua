@@ -61,6 +61,31 @@ payload.books[1].unknown = "data"
 rejected(payload, "未知字段")
 
 payload = valid_payload()
+payload.books[1]["unknown_" .. filesystem_canary] = "data"
+local unknown_result, unknown_err = Import.validate(payload)
+assert(unknown_result == nil and unknown_err:find("未知字段", 1, true),
+    "unknown field was not rejected")
+assert(not unknown_err:find(filesystem_canary, 1, true),
+    "unknown field name leaked into the import error")
+
+payload = valid_payload()
+payload.books[1]["cookie_" .. filesystem_canary] = "secret"
+local credential_result, credential_err = Import.validate(payload)
+assert(credential_result == nil and credential_err:find("凭证字段", 1, true),
+    "credential field was not rejected")
+assert(not credential_err:find(filesystem_canary, 1, true),
+    "credential field name leaked into the import error")
+
+payload = valid_payload()
+payload[unsafe_filesystem_error()] = "data"
+local object_key_result, object_key_err = Import.validate(payload)
+assert(object_key_result == nil and object_key_err:find("未知字段", 1, true),
+    "object field key was not rejected")
+assert(not object_key_err:find(filesystem_canary, 1, true),
+    "object field key leaked into the import error")
+assert(filesystem_tostring_calls == 0, "object field key invoked __tostring")
+
+payload = valid_payload()
 payload.books[1].id = 7633875868615461950
 rejected(payload, "数字字符串")
 
