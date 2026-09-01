@@ -15,11 +15,42 @@ local function clean_text(value, fallback, maximum)
     return text
 end
 
+local function finite_number(value)
+    local value_type = type(value)
+    if value_type ~= "number" and value_type ~= "string" then return nil end
+    local number = tonumber(value)
+    if not number or number ~= number
+            or number == math.huge or number == -math.huge then
+        return nil
+    end
+    return number
+end
+
+local function normalize_index(value, fallback)
+    local number = finite_number(value)
+    if not number then return fallback, true end
+    local index = math.floor(number)
+    return index, type(value) ~= "number" or index ~= value
+end
+
+local function normalize_timestamp(value, fallback)
+    local number = finite_number(value)
+    if not number or number < 0 then return fallback, true end
+    return number, type(value) ~= "number"
+end
+
+local function current_time(value)
+    local number = finite_number(value)
+    if number and number >= 0 then return number end
+    return os.time()
+end
+
 local function ordered_numeric_keys(value)
     local keys, changed = {}, false
     if type(value) ~= "table" then return keys, value ~= nil end
     for key in pairs(value) do
-        if type(key) == "number" and key >= 1 and key == math.floor(key) then
+        if type(key) == "number" and finite_number(key)
+                and key >= 1 and key == math.floor(key) then
             keys[#keys + 1] = key
         else
             changed = true
@@ -39,11 +70,14 @@ local function normalize_chapters(chapters)
         local chapter = chapters[key]
         local id = type(chapter) == "table" and valid_id(chapter.id) or nil
         if id and not seen[id] then
+            local index, index_changed = normalize_index(chapter.index, #output + 1)
+            if index < 1 then index, index_changed = #output + 1, true end
             output[#output + 1] = {
                 id = id,
                 title = clean_text(chapter.title, "第 " .. tostring(#output + 1) .. " 章", 300),
-                index = tonumber(chapter.index) or (#output + 1),
+                index = index,
             }
+            if index_changed then changed = true end
             seen[id] = true
         else
             changed = true
@@ -58,23 +92,30 @@ local function normalize_book(record, now)
     local id = valid_id(source.id)
     if not id then return nil, true end
     local chapters, changed = normalize_chapters(record.chapters)
-    local directory_updated_at = tonumber(record.directory_updated_at) or 0
-    if directory_updated_at ~= directory_updated_at or directory_updated_at < 0 then
-        directory_updated_at = 0
+    local directory_updated_at, directory_time_changed =
+        normalize_timestamp(record.directory_updated_at, 0)
+    local current_index, current_index_changed = normalize_index(record.current_index, 1)
+    if current_index < 1 then current_index, current_index_changed = 1, true end
+    if #chapters > 0 and current_index > #chapters then
+        current_index, current_index_changed = #chapters, true
     end
-    local current_index = math.floor(tonumber(record.current_index) or 1)
-    if current_index < 1 then current_index = 1 end
-    if #chapters > 0 and current_index > #chapters then current_index = #chapters end
+    local added_at, added_time_changed = normalize_timestamp(record.added_at, now)
+    local updated_at, updated_time_changed = normalize_timestamp(record.updated_at, now)
+    local last_opened_at, opened_time_changed = normalize_timestamp(record.last_opened_at, 0)
+    if directory_time_changed or current_index_changed or added_time_changed
+            or updated_time_changed or opened_time_changed then
+        changed = true
+    end
     local output = {
         id = id,
         title = clean_text(source.title, "番茄书籍 " .. id, 300),
         author = clean_text(source.author, nil, 150),
         chapters = chapters,
         current_index = current_index,
-        added_at = tonumber(record.added_at) or now,
-        updated_at = tonumber(record.updated_at) or now,
+        added_at = added_at,
+        updated_at = updated_at,
         directory_updated_at = directory_updated_at,
-        last_opened_at = tonumber(record.last_opened_at) or 0,
+        last_opened_at = last_opened_at,
     }
     if type(record.cover_url) == "string" and record.cover_url:match("^https://") then
         output.cover_url = record.cover_url
@@ -106,7 +147,7 @@ function Library.find(library, book_id)
 end
 
 function Library.load(saved, legacy_book, legacy_chapters, legacy_index, now)
-    now = tonumber(now) or os.time()
+    now = current_time(now)
     local library = Library.new()
     local changed = type(saved) ~= "table" or saved.version ~= Library.VERSION
     if type(saved) == "table" then
@@ -151,7 +192,7 @@ function Library.load(saved, legacy_book, legacy_chapters, legacy_index, now)
 end
 
 function Library.upsert(library, book, chapters, requested_index, now)
-    now = tonumber(now) or os.time()
+    now = current_time(now)
     local id = type(book) == "table" and valid_id(book.id) or nil
     if not id then return nil, "书籍 ID 无效" end
     local existing, existing_index = Library.find(library, id)
@@ -194,7 +235,7 @@ function Library.upsert(library, book, chapters, requested_index, now)
 end
 
 function Library.import_books(library, imported_books, now)
-    now = tonumber(now) or os.time()
+    now = current_time(now)
     local added, updated = 0, 0
     for _, imported in ipairs(imported_books or {}) do
         local existing = Library.find(library, imported.id)
@@ -229,7 +270,7 @@ function Library.touch(library, book_id, chapter_index, now)
     chapter_index = math.floor(tonumber(chapter_index) or 0)
     if chapter_index < 1 or not book.chapters[chapter_index] then return nil, "章节位置无效" end
     book.current_index = chapter_index
-    book.last_opened_at = tonumber(now) or os.time()
+    book.last_opened_at = current_time(now)
     return book
 end
 
