@@ -131,6 +131,60 @@ equal(chapter_index_changed, true, "infinite chapter index requires repair")
 equal(damaged_chapter_index.books[1].chapters[1].index, 1,
     "infinite chapter index repaired")
 
+local damaged_text, text_changed = Library.load({
+    version = 1,
+    books = {
+        {
+            id = "7134567890123456785",
+            title = "伪造\n菜单项",
+            author = "作者\127伪造",
+            cover_url = "https://example.invalid/cover.jpg\nInjected",
+            chapters = {
+                { id = "50000000003", title = "第一章\0伪造", index = 1 },
+            },
+            current_index = 1,
+            added_at = 625,
+            updated_at = 625,
+            directory_updated_at = 625,
+            last_opened_at = 0,
+            imported_progress = {
+                chapter_id = "50000000003",
+                chapter_title = "导入章节\t伪造",
+                position = 0.5,
+            },
+        },
+        {
+            id = "7134567890123456784",
+            title = "超长封面书籍",
+            author = "",
+            cover_url = "https://" .. string.rep("x", 2049),
+            chapters = {},
+            current_index = 1,
+            added_at = 625,
+            updated_at = 625,
+            directory_updated_at = 0,
+            last_opened_at = 0,
+        },
+    },
+}, nil, nil, nil, 625)
+equal(text_changed, true, "saved control characters require repair")
+local repaired_text = damaged_text.books[1]
+equal(repaired_text.title, "番茄书籍 7134567890123456785",
+    "control character book title repaired")
+equal(repaired_text.author, "", "control character author repaired")
+equal(repaired_text.chapters[1].title, "第 1 章",
+    "control character chapter title repaired")
+equal(repaired_text.cover_url, nil, "control character cover URL removed")
+equal(repaired_text.imported_progress.chapter_title, "",
+    "control character imported chapter title repaired")
+equal(Library.find(damaged_text, "7134567890123456784").cover_url, nil,
+    "oversized cover URL removed")
+local repaired_text_again, text_changed_again =
+    Library.load(damaged_text, nil, nil, nil, 700)
+equal(text_changed_again, false, "repaired saved text is idempotent")
+equal(repaired_text_again.books[1].title, repaired_text.title,
+    "repaired saved text remains stable")
+
 local sparse, sparse_changed = Library.load({
     version = 1,
     books = {

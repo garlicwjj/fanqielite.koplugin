@@ -9,10 +9,23 @@ local function valid_id(value)
 end
 
 local function clean_text(value, fallback, maximum)
-    local text = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
-    if text == "" then return fallback or "" end
-    if maximum and #text > maximum then return fallback or "" end
-    return text
+    local replacement = fallback or ""
+    if value == nil and fallback == nil then return replacement, false end
+    if type(value) ~= "string" or value:find("[%z\1-\31\127]") then
+        return replacement, value ~= replacement
+    end
+    local text = value:match("^%s*(.-)%s*$")
+    if text == "" or (maximum and #text > maximum) then
+        return replacement, value ~= replacement
+    end
+    return text, text ~= value
+end
+
+local function clean_cover_url(value)
+    if value == nil then return nil, false end
+    local url, changed = clean_text(value, nil, 2048)
+    if url == "" or not url:match("^https://") then return nil, true end
+    return url, changed
 end
 
 local function finite_number(value)
@@ -72,12 +85,14 @@ local function normalize_chapters(chapters)
         if id and not seen[id] then
             local index, index_changed = normalize_index(chapter.index, #output + 1)
             if index < 1 then index, index_changed = #output + 1, true end
+            local title, title_changed = clean_text(
+                chapter.title, "第 " .. tostring(#output + 1) .. " 章", 300)
             output[#output + 1] = {
                 id = id,
-                title = clean_text(chapter.title, "第 " .. tostring(#output + 1) .. " 章", 300),
+                title = title,
                 index = index,
             }
-            if index_changed then changed = true end
+            if index_changed or title_changed then changed = true end
             seen[id] = true
         else
             changed = true
@@ -102,14 +117,18 @@ local function normalize_book(record, now)
     local added_at, added_time_changed = normalize_timestamp(record.added_at, now)
     local updated_at, updated_time_changed = normalize_timestamp(record.updated_at, now)
     local last_opened_at, opened_time_changed = normalize_timestamp(record.last_opened_at, 0)
+    local title, title_changed = clean_text(source.title, "番茄书籍 " .. id, 300)
+    local author, author_changed = clean_text(source.author, nil, 150)
+    local cover_url, cover_changed = clean_cover_url(record.cover_url)
     if directory_time_changed or current_index_changed or added_time_changed
-            or updated_time_changed or opened_time_changed then
+            or updated_time_changed or opened_time_changed or title_changed
+            or author_changed or cover_changed then
         changed = true
     end
     local output = {
         id = id,
-        title = clean_text(source.title, "番茄书籍 " .. id, 300),
-        author = clean_text(source.author, nil, 150),
+        title = title,
+        author = author,
         chapters = chapters,
         current_index = current_index,
         added_at = added_at,
@@ -117,15 +136,17 @@ local function normalize_book(record, now)
         directory_updated_at = directory_updated_at,
         last_opened_at = last_opened_at,
     }
-    if type(record.cover_url) == "string" and record.cover_url:match("^https://") then
-        output.cover_url = record.cover_url
-    end
-    if type(record.imported_progress) == "table"
-            and valid_id(record.imported_progress.chapter_id) then
+    if cover_url then output.cover_url = cover_url end
+    local imported_chapter_id = type(record.imported_progress) == "table"
+        and valid_id(record.imported_progress.chapter_id) or nil
+    if imported_chapter_id then
+        local chapter_title, chapter_title_changed =
+            clean_text(record.imported_progress.chapter_title, nil, 300)
         output.imported_progress = {
-            chapter_id = tostring(record.imported_progress.chapter_id),
-            chapter_title = clean_text(record.imported_progress.chapter_title, nil, 300),
+            chapter_id = imported_chapter_id,
+            chapter_title = chapter_title,
         }
+        if chapter_title_changed then changed = true end
         local position = tonumber(record.imported_progress.position)
         if position and position == position and position >= 0 and position <= 1 then
             output.imported_progress.position = position
