@@ -110,6 +110,15 @@ local function safe_cache_file(storage, book_id, directory, name)
     return path
 end
 
+local function safe_regular_cache_file(storage, book_id, directory, name)
+    local path, path_err = safe_cache_file(storage, book_id, directory, name)
+    if not path then return nil, path_err end
+    local attributes_call, mode = pcall(lfs.attributes, path, "mode")
+    if not attributes_call then return nil, "无法读取缓存文件状态" end
+    if mode ~= "file" then return nil end
+    return path
+end
+
 local function safe_book_directory(storage, book_id, create)
     if type(book_id) ~= "string" or not book_id:match("^%d+$") then
         return nil, "缓存标识无效"
@@ -244,14 +253,16 @@ function Storage:prune(book_id, keep, protected_path)
     if not entries then return nil, entries_err end
     for _, name in ipairs(entries) do
         if name:match("^%d+%.xhtml$") then
-            local full, file_err = safe_cache_file(self, book_id, path, name)
-            if not full then return nil, file_err end
-            local attributes_call, modified = pcall(lfs.attributes, full, "modification")
-            if not attributes_call then return nil, "无法读取缓存文件状态" end
-            files[#files + 1] = {
-                path = full,
-                time = type(modified) == "number" and modified or 0,
-            }
+            local full, file_err = safe_regular_cache_file(self, book_id, path, name)
+            if file_err then return nil, file_err end
+            if full then
+                local attributes_call, modified = pcall(lfs.attributes, full, "modification")
+                if not attributes_call then return nil, "无法读取缓存文件状态" end
+                files[#files + 1] = {
+                    path = full,
+                    time = type(modified) == "number" and modified or 0,
+                }
+            end
         end
     end
     table.sort(files, function(a, b)
@@ -286,7 +297,11 @@ function Storage:cached_count(book_id)
     if not entries then return nil, entries_err end
     local count = 0
     for _, name in ipairs(entries) do
-        if name:match("^%d+%.xhtml$") then count = count + 1 end
+        if name:match("^%d+%.xhtml$") then
+            local full, file_err = safe_regular_cache_file(self, book_id, path, name)
+            if file_err then return nil, file_err end
+            if full then count = count + 1 end
+        end
     end
     return count
 end
