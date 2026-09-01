@@ -86,6 +86,37 @@ assert(Import.validate(payload), "export must satisfy the import whitelist")
 local empty, empty_err = Export.build({ books = {} }, "2026-08-17T12:00:00Z")
 assert(empty == nil and empty_err:find("书架为空", 1, true))
 
+local sparse, sparse_err = Export.build({ books = {
+    [1] = library.books[1],
+    [3] = library.books[2],
+} }, "2026-08-17T12:00:00Z")
+assert(sparse == nil and sparse_err:find("结构", 1, true),
+    "sparse in-memory library was partially exported")
+
+local mixed, mixed_err = Export.build({ books = {
+    library.books[1],
+    unexpected = library.books[2],
+} }, "2026-08-17T12:00:00Z")
+assert(mixed == nil and mixed_err:find("结构", 1, true),
+    "mixed-key in-memory library was partially exported")
+
+local malformed_call, malformed, malformed_err = pcall(
+    Export.build, { books = { "not-a-book" } }, "2026-08-17T12:00:00Z")
+assert(malformed_call, "malformed in-memory library escaped the export boundary")
+assert(malformed == nil and malformed_err:find("结构", 1, true),
+    "malformed in-memory book did not return a fixed export error")
+
+local hostile_book = setmetatable({}, {
+    __index = function() error(unsafe_filesystem_error()) end,
+})
+local hostile, hostile_err = Export.build(
+    { books = { hostile_book } }, "2026-08-17T12:00:00Z")
+assert(hostile == nil and hostile_err:find("结构", 1, true),
+    "hostile in-memory book escaped the export boundary")
+assert(not hostile_err:find(filesystem_canary, 1, true),
+    "hostile in-memory book leaked raw exception content")
+assert(filesystem_tostring_calls == 0, "hostile in-memory book invoked __tostring")
+
 local path = "/tmp/" .. Import.FILENAME
 local old = assert(io.open(path, "wb"))
 assert(old:write("previous export"))
