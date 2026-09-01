@@ -6,8 +6,10 @@ local book_mode = "directory"
 local mkdir_paths = {}
 local dir_error = nil
 local attribute_error = nil
+local cache_attribute_error = nil
 local dir_iteration_error = nil
 local modification_times = {}
+local cache_modes = {}
 local sync_ok, sync_error = true, nil
 local directory_sync_calls = 0
 local directory_sync_error = nil
@@ -51,7 +53,13 @@ package.preload["libs/libkoreader-lfs"] = function()
             end
             if path == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
                     and attribute == "mode" then
-                return cached_mode
+                if cache_attribute_error then error(cache_attribute_error) end
+                return cache_modes[path] or cached_mode or "file"
+            end
+            if attribute == "mode"
+                    and path:match("^/safe%-data/fanqielite/7633875868615461950/%d+%.xhtml$") then
+                if cache_attribute_error then error(cache_attribute_error) end
+                return cache_modes[path] or "file"
             end
         end,
         symlinkattributes = function(path, attribute)
@@ -98,6 +106,27 @@ assert(#removed == 2, "only owned cache files may be removed")
 assert(removed[1] == "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml")
 assert(removed[2] == "/safe-data/fanqielite/7633875868615461950/10000000002.xhtml.tmp")
 assert(rmdir_path == "/safe-data/fanqielite/7633875868615461950")
+
+local directory_cache = "/safe-data/fanqielite/7633875868615461950/10000000001.xhtml"
+names = { ".", "..", "10000000001.xhtml" }
+cache_modes[directory_cache] = "directory"
+removed = {}
+os.remove = function(path) removed[#removed + 1] = path; return true end
+local directory_cache_count = assert(storage:cached_count("7633875868615461950"))
+local directory_cache_pruned = assert(storage:prune("7633875868615461950", 0))
+os.remove = original_remove
+cache_modes[directory_cache] = nil
+assert(directory_cache_count == 0, "directory with an XHTML name was counted as cache")
+assert(directory_cache_pruned == 0, "directory with an XHTML name was selected for eviction")
+assert(#removed == 0, "directory with an XHTML name was removed as chapter cache")
+
+cache_attribute_error = unsafe_error()
+local inventory_failed, inventory_err = storage:cached_count("7633875868615461950")
+cache_attribute_error = nil
+assert(inventory_failed == nil and inventory_err:find("缓存文件状态", 1, true),
+    "cache inventory attribute exception did not fail safely")
+assert(not inventory_err:find(canary, 1, true), "cache inventory leaked raw attribute error")
+assert(error_tostring_calls == 0, "cache inventory invoked attribute error __tostring")
 
 realpaths["/safe-data/fanqielite"] = "/outside/shared-cache"
 realpaths["/safe-data/fanqielite/7633875868615461950"] =
@@ -244,8 +273,11 @@ realpaths[linked_file] = "/outside/private.xhtml"
 modification_times = { [linked_file] = 100 }
 removed = {}
 os.remove = function(path) removed[#removed + 1] = path; return true end
+local linked_inventory, linked_inventory_err = storage:cached_count("7633875868615461950")
 local linked_pruned, linked_prune_err = storage:prune("7633875868615461950", 0)
 os.remove = original_remove
+assert(linked_inventory == nil and linked_inventory_err:find("安全范围", 1, true),
+    "linked chapter cache was included in the cache count")
 assert(linked_pruned == nil and linked_prune_err:find("安全范围", 1, true),
     "linked chapter cache was accepted for eviction inspection")
 assert(#removed == 0, "linked chapter cache was selected for eviction")
