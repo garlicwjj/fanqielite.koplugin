@@ -34,7 +34,8 @@ local book_fields = {
 }
 
 local function normalized_key(key)
-    return tostring(key or ""):lower():gsub("[^%a%d]", "")
+    if type(key) ~= "string" then return "" end
+    return key:lower():gsub("[^%a%d]", "")
 end
 
 local function find_forbidden(value, seen, depth)
@@ -54,7 +55,7 @@ local function find_forbidden(value, seen, depth)
                 or normalized:find("session", 1, true)
                 or normalized:find("telephone", 1, true)
                 or normalized:find("token", 1, true) then
-            return "导入文件包含禁止的账号凭证字段：" .. tostring(key)
+            return "导入文件包含禁止的账号凭证字段；字段名和内容未显示"
         end
         local err = find_forbidden(child, seen, depth + 1)
         if err then return err end
@@ -65,7 +66,7 @@ end
 local function check_fields(value, allowed, label)
     for key in pairs(value) do
         if type(key) ~= "string" or not allowed[key] then
-            return nil, label .. "包含未知字段：" .. tostring(key)
+            return nil, label .. "包含未知字段；字段名和内容未显示"
         end
     end
     return true
