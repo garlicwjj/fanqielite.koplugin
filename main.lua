@@ -316,9 +316,16 @@ function FanqieLite:prompt_book()
 end
 
 function FanqieLite:submit_book_input(value)
-    local book_id = Parser.book_id(value)
+    local book_id, input_err = Parser.book_id(value)
     if book_id then
         self:with_network(function() self:load_book(book_id) end)
+        return
+    end
+    local trimmed = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+    local lower = trimmed:lower()
+    if trimmed:find("://", 1, true) or lower:find("fanqienovel.com", 1, true)
+            or (trimmed:match("^%d+$") and #trimmed >= 10) then
+        self:info(input_err or "请输入番茄小说官方书籍链接或书籍 ID")
         return
     end
     local url, query_or_err = Search.build_url(value)

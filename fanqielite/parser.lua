@@ -2,6 +2,8 @@ local Pua = require("fanqielite.pua")
 local Identifier = require("fanqielite.identifier")
 
 local Parser = {}
+local BOOK_INPUT_ERROR = "请输入番茄小说官方书籍链接或书籍 ID"
+local MAX_BOOK_INPUT_BYTES = 2048
 
 local function trim(value)
     return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
@@ -102,11 +104,26 @@ local function xml_escape(text)
 end
 
 function Parser.book_id(input)
+    if type(input) ~= "string" or #input > MAX_BOOK_INPUT_BYTES
+            or input:find("[%z\1-\31\127]") then
+        return nil, BOOK_INPUT_ERROR
+    end
     input = trim(input)
-    local id = input:match("fanqienovel%.com/page/(%d+)")
-        or input:match("bookId=(%d+)")
-        or input:match("^(%d+)$")
-    if not Identifier.valid(id) then return nil, "请输入番茄小说官方书籍链接或书籍 ID" end
+    local plain_id = Identifier.normalize(input)
+    if plain_id then return plain_id end
+
+    local scheme, authority, path = input:match("^([%a][%w+%.%-]*)://([^/]+)(/.*)$")
+    local host = authority and authority:lower() or ""
+    if not scheme or scheme:lower() ~= "https"
+            or (host ~= "fanqienovel.com" and host ~= "www.fanqienovel.com") then
+        return nil, BOOK_INPUT_ERROR
+    end
+    local id, suffix = path:match("^/page/(%d+)(.*)$")
+    if not Identifier.valid(id) then return nil, BOOK_INPUT_ERROR end
+    local suffix_ok = suffix == "" or suffix == "/"
+        or suffix:sub(1, 1) == "?" or suffix:sub(1, 1) == "#"
+        or suffix:sub(1, 2) == "/?" or suffix:sub(1, 2) == "/#"
+    if not suffix_ok then return nil, BOOK_INPUT_ERROR end
     return id
 end
 

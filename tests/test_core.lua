@@ -11,7 +11,33 @@ end
 
 equal(Parser.book_id("7633875868615461950"), "7633875868615461950", "plain id")
 equal(Parser.book_id("https://fanqienovel.com/page/7633875868615461950"), "7633875868615461950", "page url")
+equal(Parser.book_id("HTTPS://FANQIEnovel.COM/page/7633875868615461950?enter_from=rank"),
+    "7633875868615461950", "official page URL with tracking query")
+equal(Parser.book_id("https://www.fanqienovel.com/page/7633875868615461950"),
+    "7633875868615461950", "official www redirect URL")
+equal(Parser.book_id("https://fanqienovel.com/page/7633875868615461950/#catalog"),
+    "7633875868615461950", "official page URL with trailing slash and fragment")
 equal(Parser.book_id(string.rep("9", 65)), nil, "oversized input id accepted")
+
+local rejected_book_inputs = {
+    "https://evilfanqienovel.com/page/7633875868615461950",
+    "https://evil.example/fanqienovel.com/page/7633875868615461950",
+    "https://fanqienovel.com@evil.example/page/7633875868615461950",
+    "https://fanqienovel.com:443/page/7633875868615461950",
+    "http://fanqienovel.com/page/7633875868615461950",
+    "https://fanqienovel.com/page/7633875868615461950/extra",
+    "https://fanqienovel.com/reader/7633875868615461950",
+    "https://example.invalid/?bookId=7633875868615461950",
+    "bookId=7633875868615461950",
+    "https://fanqienovel.com/page/7633875868615461950\nInjected",
+    "https://fanqienovel.com/page/7633875868615461950?" .. string.rep("x", 2048),
+}
+for index, value in ipairs(rejected_book_inputs) do
+    local rejected_input, rejected_input_err = Parser.book_id(value)
+    equal(rejected_input, nil, "unsafe book input accepted " .. tostring(index))
+    assert(rejected_input_err == "请输入番茄小说官方书籍链接或书籍 ID",
+        "unsafe book input returned an unexpected error")
+end
 
 local json = assert(Parser.extract_initial_state([[<script>window.__INITIAL_STATE__={"text":"a}\\\"b","nested":{"ok":true}};</script>]]))
 equal(json, [[{"text":"a}\\\"b","nested":{"ok":true}}]], "balanced JSON")
