@@ -1,4 +1,5 @@
 local Import = {}
+local Identifier = require("fanqielite.identifier")
 
 Import.FORMAT = "fanqielite-bookshelf"
 Import.VERSION = 1
@@ -84,8 +85,8 @@ end
 
 local function id(value, field, optional)
     if value == nil and optional then return nil end
-    if type(value) ~= "string" or not value:match("^%d%d%d%d%d%d%d%d%d%d+$") then
-        return nil, field .. "必须是至少 10 位的数字字符串"
+    if not Identifier.valid(value) then
+        return nil, field .. "必须是 10 到 64 位的数字字符串"
     end
     return value
 end
@@ -131,7 +132,7 @@ function Import.validate(payload)
         if not book_ok then return nil, book_err end
         local book_id, id_err = id(source.id, "第 " .. tostring(index) .. " 本书的 id")
         if not book_id then return nil, id_err end
-        if seen[book_id] then return nil, "书架文件包含重复书籍 ID：" .. book_id end
+        if seen[book_id] then return nil, "书架文件包含重复书籍 ID；具体 ID 未显示" end
         seen[book_id] = true
         local title, title_err = text(source.title, "第 " .. tostring(index) .. " 本书的 title", 300, true)
         if not title then return nil, title_err end

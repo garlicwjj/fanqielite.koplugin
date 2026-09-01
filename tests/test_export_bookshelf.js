@@ -68,6 +68,7 @@ assert.strictEqual(JSON.stringify(privateOutput).includes(credentialCanary), fal
 
 assert.strictEqual(exporter.normalizeId("1234567890"), "1234567890");
 assert.strictEqual(exporter.normalizeId(1234567890), "");
+assert.strictEqual(exporter.normalizeId("9".repeat(65)), "");
 assert.strictEqual(exporter.normalizeCover("http://example.com/a.jpg"), "");
 assert.strictEqual(exporter.normalizeCover("https://example.com/a b.jpg"), "");
 assert.strictEqual(exporter.normalizeCover("https://user:" + credentialCanary + "@example.com/a.jpg"), "");

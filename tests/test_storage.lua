@@ -96,6 +96,8 @@ assert(Storage.is_cache_name("10000000001.xhtml"), "chapter cache name rejected"
 assert(Storage.is_cache_name("10000000001.xhtml.tmp"), "temporary cache name rejected")
 assert(not Storage.is_cache_name("notes.txt"), "unowned file accepted")
 assert(not Storage.is_cache_name("../100.xhtml"), "path traversal accepted")
+assert(not Storage.is_cache_name(string.rep("9", 65) .. ".xhtml"),
+    "oversized numeric filename accepted as owned cache")
 assert(storage:cached_count("7633875868615461950") == 1, "cached count must ignore temporary and unowned files")
 
 local count = assert(storage:clear_book("7633875868615461950"))
@@ -127,6 +129,19 @@ assert(inventory_failed == nil and inventory_err:find("缓存文件状态", 1, t
     "cache inventory attribute exception did not fail safely")
 assert(not inventory_err:find(canary, 1, true), "cache inventory leaked raw attribute error")
 assert(error_tostring_calls == 0, "cache inventory invoked attribute error __tostring")
+
+local oversized_cache_name = string.rep("9", 65) .. ".xhtml"
+names = { ".", "..", oversized_cache_name }
+removed = {}
+os.remove = function(path) removed[#removed + 1] = path; return true end
+assert(storage:cached_count("7633875868615461950") == 0,
+    "oversized numeric filename was counted as owned cache")
+assert(storage:prune("7633875868615461950", 0) == 0,
+    "oversized numeric filename was selected for eviction")
+assert(storage:clear_book("7633875868615461950") == 0,
+    "oversized numeric filename was selected for manual cleanup")
+os.remove = original_remove
+assert(#removed == 0, "oversized numeric filename was deleted as owned cache")
 
 realpaths["/safe-data/fanqielite"] = "/outside/shared-cache"
 realpaths["/safe-data/fanqielite/7633875868615461950"] =
@@ -193,6 +208,9 @@ assert(error_tostring_calls == 0, "realpath exception invoked __tostring")
 
 local invalid = storage:clear_book("../../outside")
 assert(invalid == nil, "invalid book id accepted")
+assert(storage:book_dir(string.rep("9", 65)) == nil, "oversized cache book id accepted")
+assert(storage:chapter_path("7633875868615461950", string.rep("8", 65)) == nil,
+    "oversized cache chapter id accepted")
 
 names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml" }
 removed = {}

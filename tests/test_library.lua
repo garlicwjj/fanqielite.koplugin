@@ -69,8 +69,10 @@ local invalid = Library.load({
     version = 1,
     books = {
         { id = "../../bad", title = "unsafe" },
+        { id = string.rep("9", 65), title = "oversized" },
         { id = second.id, title = "kept", chapters = {
-            chapter("not-an-id"), chapter("20000000003", "valid"), chapter("20000000003", "duplicate"),
+            chapter("not-an-id"), chapter(string.rep("8", 65)),
+            chapter("20000000003", "valid"), chapter("20000000003", "duplicate"),
         }, current_index = 99 },
     },
 }, nil, nil, nil, 600)

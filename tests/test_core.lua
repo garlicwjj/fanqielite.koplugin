@@ -11,6 +11,7 @@ end
 
 equal(Parser.book_id("7633875868615461950"), "7633875868615461950", "plain id")
 equal(Parser.book_id("https://fanqienovel.com/page/7633875868615461950"), "7633875868615461950", "page url")
+equal(Parser.book_id(string.rep("9", 65)), nil, "oversized input id accepted")
 
 local json = assert(Parser.extract_initial_state([[<script>window.__INITIAL_STATE__={"text":"a}\\\"b","nested":{"ok":true}};</script>]]))
 equal(json, [[{"text":"a}\\\"b","nested":{"ok":true}}]], "balanced JSON")

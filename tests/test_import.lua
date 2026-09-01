@@ -90,6 +90,14 @@ payload.books[1].id = 7633875868615461950
 rejected(payload, "数字字符串")
 
 payload = valid_payload()
+payload.books[1].id = string.rep("9", 65)
+rejected(payload, "10 到 64")
+
+payload = valid_payload()
+payload.books[1].current_chapter_id = string.rep("8", 65)
+rejected(payload, "10 到 64")
+
+payload = valid_payload()
 payload.books[1].title = string.rep("x", 301)
 rejected(payload, "过长")
 
@@ -99,7 +107,11 @@ rejected(payload, "控制字符")
 
 payload = valid_payload()
 payload.books[2] = payload.books[1]
-rejected(payload, "重复书籍 ID")
+local duplicate_result, duplicate_err = Import.validate(payload)
+assert(duplicate_result == nil and duplicate_err:find("重复书籍 ID", 1, true),
+    "duplicate book ID was not rejected")
+assert(not duplicate_err:find(payload.books[1].id, 1, true),
+    "duplicate book ID was echoed into the import error")
 
 payload = valid_payload()
 payload.books[1].cover_url = "http://example.invalid/cover.jpg"

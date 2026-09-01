@@ -1,10 +1,11 @@
+local Identifier = require("fanqielite.identifier")
+
 local Library = {}
 
 Library.VERSION = 1
 
 local function valid_id(value)
-    local id = tostring(value or "")
-    if id:match("^%d%d%d%d%d%d%d%d%d%d+$") then return id end
+    return Identifier.normalize(value)
 end
 
 local function clean_text(value, fallback, maximum)

@@ -1,5 +1,6 @@
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
+local Identifier = require("fanqielite.identifier")
 local lfs = require("libs/libkoreader-lfs")
 local SafeTemporary = require("fanqielite.safetemporary")
 
@@ -34,9 +35,14 @@ function Storage.validate_chapter_contents(contents)
     return true
 end
 
+local function chapter_item_id(name)
+    return type(name) == "string" and name:match("^(%d+)%.xhtml$") or nil
+end
+
 function Storage.is_cache_name(name)
-    return type(name) == "string"
-        and (name:match("^%d+%.xhtml$") ~= nil or name:match("^%d+%.xhtml%.tmp$") ~= nil)
+    local item_id = chapter_item_id(name)
+        or (type(name) == "string" and name:match("^(%d+)%.xhtml%.tmp$") or nil)
+    return Identifier.valid(item_id)
 end
 
 local function mkdir(path)
@@ -87,9 +93,8 @@ local function safe_storage_root(storage)
 end
 
 local function safe_cache_file(storage, book_id, directory, name)
-    book_id = tostring(book_id or "")
-    if not book_id:match("^%d+$")
-            or type(name) ~= "string" or not name:match("^%d+%.xhtml$") then
+    local item_id = chapter_item_id(name)
+    if not Identifier.valid(book_id) or not Identifier.valid(item_id) then
         return nil, "缓存标识无效"
     end
     local path = directory .. "/" .. name
@@ -120,7 +125,7 @@ local function safe_regular_cache_file(storage, book_id, directory, name)
 end
 
 local function safe_book_directory(storage, book_id, create)
-    if type(book_id) ~= "string" or not book_id:match("^%d+$") then
+    if not Identifier.valid(book_id) then
         return nil, "缓存标识无效"
     end
     local real_root, root_err = safe_storage_root(storage)
@@ -165,12 +170,11 @@ function Storage:new()
 end
 
 function Storage:book_dir(book_id)
-    return safe_book_directory(self, tostring(book_id or ""), true)
+    return safe_book_directory(self, book_id, true)
 end
 
 function Storage:chapter_path(book_id, item_id)
-    item_id = tostring(item_id or "")
-    if not item_id:match("^%d+$") then return nil, "缓存标识无效" end
+    if not Identifier.valid(item_id) then return nil, "缓存标识无效" end
     local directory, directory_err = self:book_dir(book_id)
     if not directory then return nil, directory_err end
     return directory .. "/" .. item_id .. ".xhtml"
@@ -222,8 +226,7 @@ function Storage:write_chapter(book_id, item_id, contents)
 end
 
 function Storage:cached_chapter(book_id, item_id)
-    book_id, item_id = tostring(book_id or ""), tostring(item_id or "")
-    if not book_id:match("^%d+$") or not item_id:match("^%d+$") then
+    if not Identifier.valid(book_id) or not Identifier.valid(item_id) then
         return nil, "缓存标识无效"
     end
     local directory, directory_err = safe_book_directory(self, book_id, false)
@@ -252,7 +255,7 @@ function Storage:prune(book_id, keep, protected_path)
     local entries, entries_err = directory_entries(path)
     if not entries then return nil, entries_err end
     for _, name in ipairs(entries) do
-        if name:match("^%d+%.xhtml$") then
+        if Identifier.valid(chapter_item_id(name)) then
             local full, file_err = safe_regular_cache_file(self, book_id, path, name)
             if file_err then return nil, file_err end
             if full then
@@ -297,7 +300,7 @@ function Storage:cached_count(book_id)
     if not entries then return nil, entries_err end
     local count = 0
     for _, name in ipairs(entries) do
-        if name:match("^%d+%.xhtml$") then
+        if Identifier.valid(chapter_item_id(name)) then
             local full, file_err = safe_regular_cache_file(self, book_id, path, name)
             if file_err then return nil, file_err end
             if full then count = count + 1 end
