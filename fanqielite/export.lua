@@ -28,19 +28,40 @@ local function exported_book(book)
     return output
 end
 
-function Export.build(library, exported_at)
-    if type(library) ~= "table" or type(library.books) ~= "table"
-            or #library.books == 0 then
-        return nil, "本地书架为空，没有可导出的书籍"
+local function exportable_books(library)
+    if type(library) ~= "table" or type(library.books) ~= "table" then
+        return nil, "本地书架结构无效，已停止导出"
     end
+    local count, maximum_index = 0, 0
+    for key, book in pairs(library.books) do
+        if type(key) ~= "number" or key < 1 or key ~= math.floor(key)
+                or type(book) ~= "table" then
+            return nil, "本地书架结构不完整，已停止导出"
+        end
+        count = count + 1
+        if key > maximum_index then maximum_index = key end
+    end
+    if count == 0 then return nil, "本地书架为空，没有可导出的书籍" end
+    if count > Import.MAX_BOOKS then return nil, "本地书架超过 500 本，已停止导出" end
+    if maximum_index ~= count then return nil, "本地书架结构不完整，已停止导出" end
+    return library.books, count
+end
+
+function Export.build(library, exported_at)
+    local books, book_count_or_err = exportable_books(library)
+    if not books then return nil, book_count_or_err end
     local payload = {
         format = Import.FORMAT,
         version = Import.VERSION,
         exported_at = exported_at or os.date("!%Y-%m-%dT%H:%M:%SZ"),
         books = {},
     }
-    for _, book in ipairs(library.books) do
-        payload.books[#payload.books + 1] = exported_book(book)
+    for index = 1, book_count_or_err do
+        local projected_ok, projected = pcall(exported_book, books[index])
+        if not projected_ok or type(projected) ~= "table" then
+            return nil, "本地书架结构无效，已停止导出"
+        end
+        payload.books[index] = projected
     end
     local valid, validation_err = Import.validate(payload)
     if not valid then
