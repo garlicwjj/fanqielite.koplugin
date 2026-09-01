@@ -80,6 +80,57 @@ equal(#invalid.books, 1, "invalid book rejected")
 equal(#invalid.books[1].chapters, 1, "invalid and duplicate chapters rejected")
 equal(invalid.books[1].current_index, 1, "progress clamped")
 
+local damaged_numbers, numbers_changed = Library.load({
+    version = 1,
+    books = {
+        {
+            id = "7134567890123456788", title = "异常数值书籍",
+            chapters = {
+                { id = "50000000000", title = "第一章", index = 1 },
+                { id = "50000000001", title = "第二章", index = 2 },
+            },
+            current_index = 0 / 0,
+            added_at = math.huge,
+            updated_at = -math.huge,
+            directory_updated_at = math.huge,
+            last_opened_at = 0 / 0,
+        },
+        [math.huge] = {
+            id = "7134567890123456786", title = "无穷索引不应进入书架",
+        },
+    },
+}, nil, nil, nil, 625)
+equal(numbers_changed, true, "non-finite saved numbers require repair")
+equal(#damaged_numbers.books, 1, "infinite saved array key rejected")
+local repaired_numbers = damaged_numbers.books[1]
+equal(repaired_numbers.current_index, 1, "NaN progress repaired")
+equal(repaired_numbers.added_at, 625, "infinite added time repaired")
+equal(repaired_numbers.updated_at, 625, "negative infinite update time repaired")
+equal(repaired_numbers.directory_updated_at, 0, "infinite directory time repaired")
+equal(repaired_numbers.last_opened_at, 0, "NaN opened time repaired")
+equal(Library.sorted(damaged_numbers)[1].id, repaired_numbers.id,
+    "repaired saved numbers remain sortable")
+
+local damaged_chapter_index, chapter_index_changed = Library.load({
+    version = 1,
+    books = {
+        {
+            id = "7134567890123456787", title = "异常章节序号书籍",
+            chapters = {
+                { id = "50000000002", title = "第一章", index = math.huge },
+            },
+            current_index = 1,
+            added_at = 625,
+            updated_at = 625,
+            directory_updated_at = 625,
+            last_opened_at = 0,
+        },
+    },
+}, nil, nil, nil, 625)
+equal(chapter_index_changed, true, "infinite chapter index requires repair")
+equal(damaged_chapter_index.books[1].chapters[1].index, 1,
+    "infinite chapter index repaired")
+
 local sparse, sparse_changed = Library.load({
     version = 1,
     books = {
