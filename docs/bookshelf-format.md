@@ -21,7 +21,7 @@
 }
 ```
 
-`id` 必须是至少 10 位的数字字符串，不能写成 JSON 数字，否则 19 位 ID 可能丢失精度。`reading_position` 可省略；存在时必须是 0 到 1 的数字。除 `id` 和 `title` 外，其余书籍字段均可省略。
+`id` 与 `current_chapter_id` 必须是 10 到 64 位的数字字符串，不能写成 JSON 数字，否则 19 位 ID 可能丢失精度。64 位上限为未来格式保留余量，同时避免异常输入膨胀设置和缓存路径。`reading_position` 可省略；存在时必须是 0 到 1 的数字。除 `id` 和 `title` 外，其余书籍字段均可省略。
 
 导入的 `reading_position` 只会在对应章节首次打开且 KOReader 尚无该 XHTML 的本机 sidecar 时应用一次。已有本地目录/阅读记录的书不会被导入进度覆盖；即使书籍曾从书架移除，只要缓存旁仍有 KOReader sidecar，本机位置仍优先。
 

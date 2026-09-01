@@ -1,4 +1,5 @@
 local Pua = require("fanqielite.pua")
+local Identifier = require("fanqielite.identifier")
 
 local Parser = {}
 
@@ -7,7 +8,7 @@ local function trim(value)
 end
 
 local function valid_id(value)
-    return type(value) == "string" and value:match("^%d%d%d%d%d%d%d%d%d%d+$") ~= nil
+    return Identifier.valid(value)
 end
 
 local function optional_text(value, label, maximum)
@@ -105,7 +106,7 @@ function Parser.book_id(input)
     local id = input:match("fanqienovel%.com/page/(%d+)")
         or input:match("bookId=(%d+)")
         or input:match("^(%d+)$")
-    if not id or #id < 10 then return nil, "请输入番茄小说官方书籍链接或书籍 ID" end
+    if not Identifier.valid(id) then return nil, "请输入番茄小说官方书籍链接或书籍 ID" end
     return id
 end
 

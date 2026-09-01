@@ -91,6 +91,15 @@ local numeric_id = {
 local unsafe, unsafe_err = Search.parse(numeric_id)
 assert(unsafe == nil and unsafe_err:find("格式异常", 1, true))
 
+local oversized_id, oversized_id_err = Search.parse({
+    code = 0,
+    data = { search_book_data_list = {{
+        book_id = string.rep("9", 65), book_name = "超长 ID", author = "作者",
+    }}},
+})
+assert(oversized_id == nil and oversized_id_err:find("格式异常", 1, true),
+    "oversized search result ID was accepted")
+
 local malformed = {
     code = 0,
     data = { search_book_data_list = { [2] = {

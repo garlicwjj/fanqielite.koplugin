@@ -37,7 +37,7 @@
     }
 
     function normalizeId(value) {
-        return typeof value === "string" && /^\d{10,}$/.test(value) ? value : "";
+        return typeof value === "string" && /^\d{10,64}$/.test(value) ? value : "";
     }
 
     function normalizeCover(value) {

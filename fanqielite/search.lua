@@ -1,3 +1,5 @@
+local Identifier = require("fanqielite.identifier")
+
 local Search = {}
 
 local BASE = "https://fanqienovel.com/api/author/search/search_book/v1"
@@ -34,7 +36,7 @@ local function clean_text(value, maximum, required)
 end
 
 local function valid_id(value)
-    return type(value) == "string" and value:match("^%d%d%d%d%d%d%d%d%d%d+$") and value or nil
+    return Identifier.normalize(value)
 end
 
 local function status_code(value)
