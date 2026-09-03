@@ -493,17 +493,27 @@ function FanqieLite:show_settings()
         },
         {
             text = _("隐私与使用边界"), callback = function()
-                self:info("只读取番茄官方网页公开内容。\n\n不保存账号、不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。JSON 导入会拒绝凭证字段和异常数据；本地导出不含账号凭证、正文或缓存。")
+                self:info("默认阅读只访问番茄官网公开内容。扫码导入目前尚未开放，"
+                    .. "没有发起账号授权；未来即使开放，也只用于一次性导入，"
+                    .. "不会保存账号登录。\n\n"
+                    .. "插件不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。"
+                    .. "JSON 导入会拒绝凭证字段和异常数据；本地导出不含账号凭证、正文或缓存。")
             end,
         },
         {
             text = _("完全卸载与安全回退"), callback = function()
-                self:info("插件不会自动删除任何文件。完全卸载时请先退出 KOReader，再由电脑仅删除：\n\n"
+                self:info("插件不会自动删除任何文件。如果以后可能恢复，请先导出本地书架，"
+                    .. "并把 JSON 复制到电脑。完全卸载时请先退出 KOReader，再由电脑仅删除：\n\n"
                     .. "1. koreader/plugins/fanqielite.koplugin\n"
                     .. "2. 可选：koreader/fanqielite\n"
                     .. "3. 可选：koreader/settings/fanqielite.lua、fanqielite.lua.old、fanqielite.lua.tmp、fanqielite.lua.old.tmp\n"
                     .. "4. 可选：用户盘根目录的 fanqielite-bookshelf.json\n\n"
-                    .. "第 1 项删除插件；其余项只删除插件数据和你主动导出的文件。不会影响 Kindle 系统、KOReader、书籍或其他插件。")
+                    .. "第 1 项即可停用插件，保留第 2 至 4 项可供以后恢复。"
+                    .. "删除第 2 项会永久删除离线章节和对应的 .sdr 阅读位置；"
+                    .. "删除第 3 项会永久删除本地书架、目录和阅读进度；"
+                    .. "删除第 4 项会删除手动导出的备份。\n\n"
+                    .. "以上路径都只属于本插件，不会影响 Kindle 系统、KOReader、"
+                    .. "其他书籍或其他插件。")
             end,
         },
     }
