@@ -71,6 +71,14 @@ local function import_error_detail(detail)
     return detail
 end
 
+local function safe_import_directory(value)
+    if type(value) ~= "string" or value == "" or #value > 1024
+            or value:find("[%z\1-\31\127]") then
+        return nil
+    end
+    return value
+end
+
 function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
     local loaded_settings = type(self.settings.data) == "table"
@@ -183,10 +191,7 @@ function FanqieLite:state_table()
         state.current_index = active.current_index
     end
     local import_path = self.settings:readSetting("import_path")
-    if type(import_path) == "string" and #import_path <= 1024
-            and not import_path:find("[%z\1-\31]") then
-        state.import_path = import_path
-    end
+    state.import_path = safe_import_directory(import_path)
     return state
 end
 
@@ -434,7 +439,10 @@ end
 function FanqieLite:apply_file_import(path, books)
     local added, updated = Library.import_books(self.library, books)
     if not self.active_book_id and books[1] then self.active_book_id = books[1].id end
-    self.settings:saveSetting("import_path", path:match("^(.*)/") or Device.home_dir)
+    local directory = type(path) == "string" and path:match("^(.*)/") or nil
+    if directory == nil then directory = Device.home_dir end
+    directory = safe_import_directory(directory)
+    if directory then self.settings:saveSetting("import_path", directory) end
     local saved, save_err = self:save_state()
     if not saved then self:info(save_err); return end
     self:info("导入完成：新增 " .. tostring(added) .. " 本，更新 " .. tostring(updated)
