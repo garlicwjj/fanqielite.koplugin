@@ -22,6 +22,7 @@ local Library = {
 local persistence_error
 local persistence_tostring_calls = 0
 local plugin
+local import_path_value = "/mnt/us"
 
 local WidgetContainer = {}
 function WidgetContainer:extend(definition)
@@ -72,7 +73,7 @@ plugin = setmetatable({
         file = "/mock/fanqielite.lua",
         data = {},
         readSetting = function(_, key)
-            if key == "import_path" then return "/mnt/us" end
+            if key == "import_path" then return import_path_value end
             return plugin and plugin.settings.data[key]
         end,
     },
@@ -119,6 +120,12 @@ local function inspect(value, seen)
 end
 inspect(state)
 assert(plugin.ephemeral_session.cookie == canary, "state projection mutated the in-memory session")
+
+import_path_value = "/mnt/us/unsafe\127directory"
+local unsafe_path_state = plugin:state_table()
+assert(unsafe_path_state.import_path == nil,
+    "DEL control character reached persisted import directory")
+import_path_value = "/mnt/us"
 
 plugin.persisted_settings = copy(state)
 plugin.settings.data = copy(state)
