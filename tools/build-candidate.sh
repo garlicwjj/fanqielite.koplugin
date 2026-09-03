@@ -34,7 +34,7 @@ done
 for module in "$repo_root"/fanqielite/*.lua; do
     COPYFILE_DISABLE=1 cp -p "$module" "$plugin_root/fanqielite/"
 done
-for document in bookshelf-format.md compatibility-matrix.md EPHEMERAL_HTTP_AUDIT.md QR_THREAT_MODEL.md QUALITY_PLAN.md SUBPROCESS_SECURITY_AUDIT.md TLS_SECURITY_AUDIT.md; do
+for document in bookshelf-format.md compatibility-matrix.md COMPATIBILITY_PILOT_2026-09-03.md EPHEMERAL_HTTP_AUDIT.md QR_THREAT_MODEL.md QUALITY_PLAN.md SUBPROCESS_SECURITY_AUDIT.md TLS_SECURITY_AUDIT.md; do
     COPYFILE_DISABLE=1 cp -p "$repo_root/docs/$document" "$plugin_root/docs/$document"
 done
 printf 'commit=%s\nworktree=%s\nstatus=candidate-test-not-release\n' \
