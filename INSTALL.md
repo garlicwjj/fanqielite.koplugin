@@ -101,4 +101,4 @@ fanqielite-bookshelf.json（如果你曾主动导出）
 koreader/plugins/fanqielite.koplugin
 ```
 
-这不会自动删除 Kindle 书籍、KOReader、其他插件、Fanqie Lite 书架设置或章节缓存。完整数据清理请按插件“设置与数据 → 完全卸载与安全回退”中的路径逐项操作，不要删除整个 `koreader` 目录。
+这不会自动删除 Kindle 书籍、KOReader、其他插件、Fanqie Lite 书架设置或章节缓存。完整数据清理前建议先从插件导出本地书架并把 JSON 复制到电脑；删除 `koreader/fanqielite` 会永久删除离线章节及对应 `.sdr` 阅读位置，删除 `koreader/settings/fanqielite.lua*` 会永久删除本地书架、目录和插件记录的进度。请按插件“设置与数据 → 完全卸载与安全回退”中的路径逐项操作，不要删除整个 `koreader` 目录。

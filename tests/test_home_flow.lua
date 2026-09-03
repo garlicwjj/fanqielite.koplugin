@@ -125,4 +125,33 @@ parser_result = "7633875868615461950"
 plugin:submit_book_input("https://fanqienovel.com/page/7633875868615461950")
 assert(loaded_book_id == parser_result, "valid official link did not load the parsed book")
 
+plugin:show_settings()
+assert(shown and shown.title == "设置与数据", "settings menu did not open")
+local expected_settings = {
+    "从文件导入书架", "导出本地书架", "缓存管理说明",
+    "隐私与使用边界", "完全卸载与安全回退",
+}
+for index, expected in ipairs(expected_settings) do
+    assert(shown.item_table[index] and shown.item_table[index].text == expected,
+        "settings entry order changed at index " .. tostring(index))
+end
+
+shown.item_table[4].callback()
+assert(info_message:find("默认阅读只访问番茄官网公开内容", 1, true),
+    "privacy notice did not explain the default public-reading boundary")
+assert(info_message:find("扫码导入目前尚未开放", 1, true),
+    "privacy notice did not explain the current QR state")
+assert(info_message:find("不会保存账号登录", 1, true),
+    "privacy notice did not state the credential persistence boundary")
+
+shown.item_table[5].callback()
+assert(info_message:find("先导出本地书架", 1, true),
+    "uninstall notice did not recommend a recoverable backup")
+assert(info_message:find("第 1 项即可停用插件", 1, true),
+    "uninstall notice did not distinguish disable from data deletion")
+assert(info_message:find("离线章节和对应的 .sdr 阅读位置", 1, true),
+    "uninstall notice hid cache and sidecar data loss")
+assert(info_message:find("本地书架、目录和阅读进度", 1, true),
+    "uninstall notice hid settings data loss")
+
 print("home flow tests passed")
