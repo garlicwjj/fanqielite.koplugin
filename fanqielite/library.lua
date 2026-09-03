@@ -168,7 +168,8 @@ end
 
 function Library.find(library, book_id)
     if type(library) ~= "table" or type(library.books) ~= "table" then return nil end
-    book_id = tostring(book_id or "")
+    book_id = valid_id(book_id)
+    if not book_id then return nil end
     for index, book in ipairs(library.books) do
         if book.id == book_id then return book, index end
     end
