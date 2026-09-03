@@ -65,6 +65,15 @@ equal(Library.remove(same, legacy_book.id), true, "remove existing")
 equal(#same.books, 1, "remove only one book")
 equal(Library.remove(same, legacy_book.id), false, "remove missing")
 
+local lookup_tostring_calls = 0
+local forged_lookup_id = setmetatable({}, { __tostring = function()
+    lookup_tostring_calls = lookup_tostring_calls + 1
+    return second.id
+end })
+equal(Library.find(same, forged_lookup_id), nil, "object book ID forged a library lookup")
+equal(lookup_tostring_calls, 0, "object book ID invoked __tostring")
+equal(Library.find(same, 1234567890), nil, "numeric book ID accepted by library lookup")
+
 local invalid = Library.load({
     version = 1,
     books = {
