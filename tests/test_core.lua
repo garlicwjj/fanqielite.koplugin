@@ -42,6 +42,25 @@ end
 local json = assert(Parser.extract_initial_state([[<script>window.__INITIAL_STATE__={"text":"a}\\\"b","nested":{"ok":true}};</script>]]))
 equal(json, [[{"text":"a}\\\"b","nested":{"ok":true}}]], "balanced JSON")
 
+local page_tostring_calls = 0
+local page_canary = "FANQIELITE_INITIAL_STATE_CANARY_31bf"
+local unsafe_page = setmetatable({}, { __tostring = function()
+    page_tostring_calls = page_tostring_calls + 1
+    return "window.__INITIAL_STATE__={\"secret\":\"" .. page_canary .. "\"}"
+end })
+local object_page, object_page_err = Parser.extract_initial_state(unsafe_page)
+equal(object_page, nil, "object page accepted for INITIAL_STATE extraction")
+equal(page_tostring_calls, 0, "page object invoked __tostring")
+assert(type(object_page_err) == "string" and not object_page_err:find(page_canary, 1, true),
+    "object page error exposed the canary")
+
+local oversized_page, oversized_page_err =
+    Parser.extract_initial_state(string.rep("x", 1024 * 1024 + 1))
+equal(oversized_page, nil, "oversized page accepted for INITIAL_STATE extraction")
+assert(oversized_page_err:find("1 MB", 1, true), "oversized page error missing limit")
+assert(oversized_page_err:find("本地数据未改变", 1, true),
+    "oversized page error missing data safety statement")
+
 local chapters = assert(Parser.directory_from_payload({ data = {
     chapterListWithVolume = { { { itemId = "10000000001", title = "第一章" } } },
 } }))
