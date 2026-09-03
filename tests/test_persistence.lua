@@ -194,6 +194,15 @@ assert(io.open(unsafe_previous_path, "rb") == nil, "main file was created after 
 assert(io.open(unsafe_previous_path .. ".old", "rb") == nil,
     "credential-bearing backup file was created")
 
+assert(Persistence.has_sensitive_fields({
+    library = { version = 1, books = {} }, sessionid = canary,
+}), "credential-bearing loaded settings were not detected")
+assert(not Persistence.has_sensitive_fields({
+    library = { version = 1, books = { {
+        id = "10000000004", title = "书名中可以出现 Cookie 和 Token 这些普通文字",
+    } } },
+}), "ordinary title text was treated as a credential field")
+
 local safe_text_path = base .. "-safe-text.lua"
 local safe_text = {
     library = { version = 1, books = { {

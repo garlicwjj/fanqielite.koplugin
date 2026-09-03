@@ -59,6 +59,10 @@ local function contains_sensitive_field(value, seen)
     return false
 end
 
+function Persistence.has_sensitive_fields(value)
+    return contains_sensitive_field(value)
+end
+
 function Persistence.copy(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -142,7 +146,8 @@ end
 function Persistence.write(path, candidate, previous)
     if type(path) ~= "string" or path == "" then return nil, "设置文件路径无效" end
     if type(candidate) ~= "table" then return nil, "插件设置必须是对象" end
-    if contains_sensitive_field(candidate) or contains_sensitive_field(previous) then
+    if Persistence.has_sensitive_fields(candidate)
+            or Persistence.has_sensitive_fields(previous) then
         return nil, "拒绝保存账号凭证、二维码会话或授权请求头字段"
     end
     if previous ~= nil then

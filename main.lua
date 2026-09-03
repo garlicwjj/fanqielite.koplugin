@@ -75,6 +75,7 @@ function FanqieLite:init()
     self.settings = LuaSettings:open(DataStorage:getSettingsDir() .. "/fanqielite.lua")
     local loaded_settings = type(self.settings.data) == "table"
         and Persistence.copy(self.settings.data) or nil
+    local unsafe_loaded_settings = Persistence.has_sensitive_fields(loaded_settings)
     self.storage = Storage:new()
     local changed
     self.library, changed = Library.load(
@@ -88,7 +89,16 @@ function FanqieLite:init()
         changed = true
     end
     local normalized_settings = self:state_table()
-    self.persisted_settings = changed and loaded_settings or normalized_settings
+    if loaded_settings and not Persistence.equal(loaded_settings, normalized_settings) then
+        changed = true
+    end
+    if unsafe_loaded_settings then
+        self.persisted_settings = normalized_settings
+        self.startup_sensitive_cleanup = true
+        changed = true
+    else
+        self.persisted_settings = changed and loaded_settings or normalized_settings
+    end
     if type(self.persisted_settings) ~= "table" then
         self.persisted_settings = normalized_settings
     end
@@ -202,10 +212,17 @@ function FanqieLite:save_state(force)
         self:restore_persisted_state()
         local detail = type(save_err) == "string" and save_err
             or "设置写入没有返回可安全显示的错误说明"
+        if self.startup_sensitive_cleanup then
+            return nil, "检测到旧插件设置包含不应持久化的账号或会话字段，"
+                .. "但无法完成安全清理：" .. detail
+                .. "\n\n运行中的本地书架已使用清洗副本，原设置文件可能仍未更新。"
+                .. "请勿继续账号导入；检查 Kindle 剩余空间或只读状态后重启 KOReader。"
+        end
         return nil, "无法安全保存插件设置：" .. detail
             .. "\n\n本次书架或阅读进度变更已撤销，上一版设置仍被保留。"
             .. "请检查 Kindle 剩余空间或只读状态后重试。"
     end
+    self.startup_sensitive_cleanup = nil
     self.persisted_settings = Persistence.copy(candidate)
     self.settings.data = Persistence.copy(candidate)
     return true
