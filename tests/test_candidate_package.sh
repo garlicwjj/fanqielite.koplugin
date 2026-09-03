@@ -38,6 +38,7 @@ fanqielite.koplugin/LICENSE
 fanqielite.koplugin/README.md
 fanqielite.koplugin/_meta.lua
 fanqielite.koplugin/docs/
+fanqielite.koplugin/docs/COMPATIBILITY_PILOT_2026-09-03.md
 fanqielite.koplugin/docs/EPHEMERAL_HTTP_AUDIT.md
 fanqielite.koplugin/docs/QUALITY_PLAN.md
 fanqielite.koplugin/docs/QR_THREAT_MODEL.md
@@ -80,6 +81,7 @@ test "$(sed -n 's/^commit=//p' "$plugin_root/BUILD-INFO.txt")" = "$(git -C "$rep
 grep -Eq '^worktree=(clean|dirty)$' "$plugin_root/BUILD-INFO.txt"
 grep -Fqx 'status=candidate-test-not-release' "$plugin_root/BUILD-INFO.txt"
 test -s "$plugin_root/docs/bookshelf-format.md"
+test -s "$plugin_root/docs/COMPATIBILITY_PILOT_2026-09-03.md"
 test -s "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 test -s "$plugin_root/docs/compatibility-matrix.md"
 test -s "$plugin_root/docs/QUALITY_PLAN.md"
