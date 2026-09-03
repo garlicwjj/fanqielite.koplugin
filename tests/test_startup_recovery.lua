@@ -19,6 +19,9 @@ local raw_settings = {
                     [1] = { id = "50000000001", title = "第一章" },
                     [3] = { id = "50000000003", title = "第三章" },
                 },
+                imported_progress = {
+                    chapter_id = "50000000001", chapter_title = "第一章", position = 0 / 0,
+                },
             },
             [3] = { id = "7134567890123456790", title = "恢复测试二", chapters = {} },
         },
@@ -90,6 +93,8 @@ assert(written_candidate, "startup normalization was not saved")
 assert(#written_candidate.library.books == 2, "startup normalization lost a sparse book")
 assert(#written_candidate.library.books[1].chapters == 2,
     "startup normalization lost a sparse chapter")
+assert(written_candidate.library.books[1].imported_progress.position == nil,
+    "startup normalization retained an invalid imported position")
 assert(written_candidate.active_book_id == "7134567890123456790",
     "startup normalization changed a recoverable active book")
 assert(written_previous, "startup normalization did not create a previous-state backup")
@@ -97,5 +102,8 @@ assert(written_previous.unknown_startup_field == raw_settings.unknown_startup_fi
     "startup backup did not preserve the raw settings object")
 assert(written_previous.library.books[3].id == "7134567890123456790",
     "startup backup did not preserve the original sparse layout")
+local backed_up_position = written_previous.library.books[1].imported_progress.position
+assert(backed_up_position ~= backed_up_position,
+    "startup backup did not preserve the raw invalid imported position")
 
 print("startup recovery tests passed")

@@ -52,6 +52,13 @@ local function normalize_timestamp(value, fallback)
     return number, type(value) ~= "number"
 end
 
+local function normalize_position(value)
+    if value == nil then return nil, false end
+    local number = finite_number(value)
+    if not number or number < 0 or number > 1 then return nil, true end
+    return number, type(value) ~= "number"
+end
+
 local function current_time(value)
     local number = finite_number(value)
     if number and number >= 0 then return number end
@@ -137,20 +144,20 @@ local function normalize_book(record, now)
         last_opened_at = last_opened_at,
     }
     if cover_url then output.cover_url = cover_url end
-    local imported_chapter_id = type(record.imported_progress) == "table"
-        and valid_id(record.imported_progress.chapter_id) or nil
+    local imported_progress = record.imported_progress
+    local imported_chapter_id = type(imported_progress) == "table"
+        and valid_id(imported_progress.chapter_id) or nil
+    if imported_progress ~= nil and not imported_chapter_id then changed = true end
     if imported_chapter_id then
         local chapter_title, chapter_title_changed =
-            clean_text(record.imported_progress.chapter_title, nil, 300)
+            clean_text(imported_progress.chapter_title, nil, 300)
+        local position, position_changed = normalize_position(imported_progress.position)
         output.imported_progress = {
             chapter_id = imported_chapter_id,
             chapter_title = chapter_title,
         }
-        if chapter_title_changed then changed = true end
-        local position = tonumber(record.imported_progress.position)
-        if position and position == position and position >= 0 and position <= 1 then
-            output.imported_progress.position = position
-        end
+        if position ~= nil then output.imported_progress.position = position end
+        if chapter_title_changed or position_changed then changed = true end
     end
     return output, changed
 end

@@ -185,6 +185,64 @@ equal(text_changed_again, false, "repaired saved text is idempotent")
 equal(repaired_text_again.books[1].title, repaired_text.title,
     "repaired saved text remains stable")
 
+local function load_saved_progress(progress)
+    return Library.load({
+        version = 1,
+        books = {
+            {
+                id = "7134567890123456783",
+                title = "导入进度修复书籍",
+                author = "",
+                chapters = {},
+                current_index = 1,
+                added_at = 625,
+                updated_at = 625,
+                directory_updated_at = 0,
+                last_opened_at = 0,
+                imported_progress = progress,
+            },
+        },
+    }, nil, nil, nil, 625)
+end
+
+local invalid_position, invalid_position_changed = load_saved_progress({
+    chapter_id = "50000000004", chapter_title = "第四章", position = 0 / 0,
+})
+equal(invalid_position_changed, true, "NaN imported position requires repair")
+equal(invalid_position.books[1].imported_progress.position, nil,
+    "NaN imported position removed")
+local repaired_position_again, repaired_position_changed =
+    Library.load(invalid_position, nil, nil, nil, 700)
+equal(repaired_position_changed, false, "repaired imported position is idempotent")
+equal(repaired_position_again.books[1].imported_progress.position, nil,
+    "repaired imported position stayed removed")
+
+local string_position, string_position_changed = load_saved_progress({
+    chapter_id = "50000000004", chapter_title = "第四章", position = "0.5",
+})
+equal(string_position_changed, true, "string imported position requires normalization")
+equal(string_position.books[1].imported_progress.position, 0.5,
+    "compatible string imported position normalized")
+
+local invalid_progress, invalid_progress_changed = load_saved_progress("invalid")
+equal(invalid_progress_changed, true, "non-object imported progress requires repair")
+equal(invalid_progress.books[1].imported_progress, nil,
+    "non-object imported progress removed")
+
+local invalid_progress_id, invalid_progress_id_changed = load_saved_progress({
+    chapter_id = "invalid", chapter_title = "错误章节", position = 0.5,
+})
+equal(invalid_progress_id_changed, true, "invalid imported chapter ID requires repair")
+equal(invalid_progress_id.books[1].imported_progress, nil,
+    "invalid imported chapter ID removed")
+
+local optional_position, optional_position_changed = load_saved_progress({
+    chapter_id = "50000000004", chapter_title = "第四章",
+})
+equal(optional_position_changed, false, "missing optional imported position was changed")
+equal(optional_position.books[1].imported_progress.position, nil,
+    "missing optional imported position was invented")
+
 local sparse, sparse_changed = Library.load({
     version = 1,
     books = {
