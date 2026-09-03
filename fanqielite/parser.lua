@@ -4,6 +4,7 @@ local Identifier = require("fanqielite.identifier")
 local Parser = {}
 local BOOK_INPUT_ERROR = "请输入番茄小说官方书籍链接或书籍 ID"
 local MAX_BOOK_INPUT_BYTES = 2048
+local MAX_PAGE_BYTES = 1024 * 1024
 
 local function trim(value)
     return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
@@ -128,7 +129,12 @@ function Parser.book_id(input)
 end
 
 function Parser.extract_initial_state(html)
-    html = tostring(html or "")
+    if type(html) ~= "string" then
+        return nil, "官方页面格式无效，已拒绝解析；本地数据未改变"
+    end
+    if #html > MAX_PAGE_BYTES then
+        return nil, "官方页面超过 1 MB 安全限制，已拒绝解析；本地数据未改变"
+    end
     local marker = "window.__INITIAL_STATE__="
     local marker_start = html:find(marker, 1, true)
     if not marker_start then return nil, "页面缺少 INITIAL_STATE" end
