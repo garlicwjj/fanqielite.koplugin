@@ -16,6 +16,20 @@
 
 每本书最多主动读取 3 个章节场景：目录前部、中部和当前末尾，共至少 90 个场景。不下载整本，不保存或提交完整正文。最终完成门禁要求每本纳入统计的书恰好各有一个互不重复的前、中、末场景；少于 3 章的书不能用于这组固定矩阵。
 
+### 固定选章，先生成计划再读取
+
+开发采集器可调用 `tools/compatibility_sample.lua`，将内存中已经解码的官方目录响应交给与插件相同的 `Parser.directory_from_payload()`，再按去重后目录顺序选第 1、`floor((N + 1) / 2)`、第 N 章（偶数章数取靠前的中间章）。不使用响应自带的章节序号来定位，不因中部或末尾锁定而换成可读章节。
+
+```lua
+local Sample = require("tools.compatibility_sample")
+-- payload 是受限 HTTP 客户端取得、在内存解码的官方目录 JSON 对象。
+local plan, err = Sample.plan(book_id, payload)
+if not plan then return nil, err end
+-- plan.samples 各项只有 position、ordinal、id；没有书名或正文。
+```
+
+该模块只生成 `fanqielite-sampling-plan` 计划，不联网、不写文件、不携带解析成功或缓存保存等观察字段，因此不能直接导入证据工具充当测试结果。它不是独立下载命令：调用方仍负责 HTTP 大小/时间限制、JSON 解码、确认目录对应所请求书籍，以及上述请求纪律。目录结构错误或去重后不足三章时停止该书取样；选定后发生目录更新应保存为新一轮计划，不混用不同快照的前、中、末记录。该工具不进入 Kindle 安装包。
+
 ## 每个场景记录
 
 - 测试日期、设备/桌面环境和插件提交号
