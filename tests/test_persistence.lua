@@ -203,6 +203,37 @@ assert(not Persistence.has_sensitive_fields({
     } } },
 }), "ordinary title text was treated as a credential field")
 
+local deep_settings, deep_cursor = {}, nil
+deep_cursor = deep_settings
+for _ = 1, 12000 do
+    deep_cursor.next = {}
+    deep_cursor = deep_cursor.next
+end
+deep_cursor.sessionid = canary
+local deep_scan_ok, deep_sensitive = pcall(Persistence.has_sensitive_fields, deep_settings)
+assert(deep_scan_ok and deep_sensitive,
+    "deep credential settings overflowed or escaped the sensitive-field scan")
+local deep_copy_ok, deep_copy = pcall(Persistence.copy, deep_settings)
+assert(deep_copy_ok and type(deep_copy) == "table",
+    "deep settings overflowed the copy boundary")
+local deep_equal_ok, deep_equal = pcall(Persistence.equal, deep_settings, deep_copy)
+assert(deep_equal_ok and deep_equal,
+    "deep settings overflowed or failed the equality boundary")
+local copied_cursor = deep_copy
+for _ = 1, 12000 do copied_cursor = copied_cursor.next end
+copied_cursor.sessionid = "changed"
+assert(not Persistence.equal(deep_settings, deep_copy), "deep leaf change was missed")
+local cyclic = { shared = {} }
+cyclic.self = cyclic
+cyclic.alias = cyclic.shared
+local cyclic_copy = Persistence.copy(cyclic)
+assert(cyclic_copy ~= cyclic and cyclic_copy.self == cyclic_copy,
+    "copy did not preserve a self reference")
+assert(cyclic_copy.shared == cyclic_copy.alias and cyclic_copy.shared ~= cyclic.shared,
+    "copy did not preserve shared ownership")
+assert(Persistence.equal(cyclic, cyclic_copy), "equivalent cycles failed comparison")
+assert(not Persistence.has_sensitive_fields(cyclic), "safe cycle was rejected")
+
 local safe_text_path = base .. "-safe-text.lua"
 local safe_text = {
     library = { version = 1, books = { {

@@ -41,20 +41,26 @@ local sensitive_key_fragments = {
     "token",
 }
 
-local function contains_sensitive_field(value, seen)
+local function contains_sensitive_field(value)
     if type(value) ~= "table" then return false end
-    seen = seen or {}
-    if seen[value] then return false end
-    seen[value] = true
-    for key, child in pairs(value) do
-        if type(key) == "string" then
-            local normalized = key:lower():gsub("[^%a%d]", "")
-            if sensitive_exact_keys[normalized] then return true end
-            for _, fragment in ipairs(sensitive_key_fragments) do
-                if normalized:find(fragment, 1, true) then return true end
+    local pending, seen = { value }, {}
+    while #pending > 0 do
+        local current = table.remove(pending)
+        if not seen[current] then
+            seen[current] = true
+            for key, child in pairs(current) do
+                if type(key) == "string" then
+                    local normalized = key:lower():gsub("[^%a%d]", "")
+                    if sensitive_exact_keys[normalized] then return true end
+                    for _, fragment in ipairs(sensitive_key_fragments) do
+                        if normalized:find(fragment, 1, true) then return true end
+                    end
+                end
+                if type(child) == "table" and not seen[child] then
+                    pending[#pending + 1] = child
+                end
             end
         end
-        if contains_sensitive_field(child, seen) then return true end
     end
     return false
 end
@@ -63,29 +69,62 @@ function Persistence.has_sensitive_fields(value)
     return contains_sensitive_field(value)
 end
 
-function Persistence.copy(value, seen)
+function Persistence.copy(value)
     if type(value) ~= "table" then return value end
-    seen = seen or {}
-    if seen[value] then return seen[value] end
-    local output = {}
+    local output, seen = {}, {}
+    local sources, targets = { value }, { output }
     seen[value] = output
-    for key, item in pairs(value) do
-        output[Persistence.copy(key, seen)] = Persistence.copy(item, seen)
+    while #sources > 0 do
+        local index = #sources
+        local source, target = sources[index], targets[index]
+        sources[index], targets[index] = nil, nil
+        for key, item in pairs(source) do
+            local copied_key = key
+            if type(key) == "table" then
+                copied_key = seen[key]
+                if not copied_key then
+                    copied_key = {}
+                    seen[key] = copied_key
+                    sources[#sources + 1] = key
+                    targets[#targets + 1] = copied_key
+                end
+            end
+            local copied_item = item
+            if type(item) == "table" then
+                copied_item = seen[item]
+                if not copied_item then
+                    copied_item = {}
+                    seen[item] = copied_item
+                    sources[#sources + 1] = item
+                    targets[#targets + 1] = copied_item
+                end
+            end
+            target[copied_key] = copied_item
+        end
     end
     return output
 end
 
-function Persistence.equal(left, right, seen)
-    if type(left) ~= type(right) then return false end
-    if type(left) ~= "table" then return left == right end
-    seen = seen or {}
-    if seen[left] then return seen[left] == right end
-    seen[left] = right
-    for key, value in pairs(left) do
-        if not Persistence.equal(value, right[key], seen) then return false end
-    end
-    for key in pairs(right) do
-        if left[key] == nil then return false end
+function Persistence.equal(left, right)
+    local pending, seen = { { left, right } }, {}
+    while #pending > 0 do
+        local pair = table.remove(pending)
+        local left_value, right_value = pair[1], pair[2]
+        if type(left_value) ~= type(right_value) then return false end
+        if type(left_value) ~= "table" then
+            if left_value ~= right_value then return false end
+        elseif seen[left_value] then
+            if seen[left_value] ~= right_value then return false end
+        else
+            seen[left_value] = right_value
+            for key, value in pairs(left_value) do
+                if right_value[key] == nil then return false end
+                pending[#pending + 1] = { value, right_value[key] }
+            end
+            for key in pairs(right_value) do
+                if left_value[key] == nil then return false end
+            end
+        end
     end
     return true
 end
