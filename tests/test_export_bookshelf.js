@@ -132,6 +132,37 @@ async function rejectedWithoutCanary(promise, pattern) {
         async () => mockResponse('{"code":0,"data":{}}'));
     assert.strictEqual(parsed.code, 0);
 
+    const realSetTimeout = global.setTimeout;
+    const realClearTimeout = global.clearTimeout;
+    let expire;
+    let cleared = 0;
+    global.setTimeout = (callback, delay) => {
+        assert.strictEqual(delay, 20000);
+        expire = callback;
+        return 123;
+    };
+    global.clearTimeout = (timer) => { assert.strictEqual(timer, 123); cleared += 1; };
+    try {
+        for (const stage of ["fetch", "body"]) {
+            await rejectedWithoutCanary(exporter.readJson(
+                "/api/book/simple/info", "/api/book/simple/info", { redirect: "follow" }, "读取书籍信息",
+                async (_, options) => {
+                    assert.strictEqual(options.redirect, "error");
+                    const stall = () => new Promise((resolve, reject) => {
+                        options.signal.addEventListener("abort", () => reject(new Error(credentialCanary)));
+                        expire();
+                    });
+                    if (stage === "fetch") return stall();
+                    return { ok: true, body: { getReader: () => ({ read: stall }) } };
+                }
+            ), /超时/);
+        }
+        assert.strictEqual(cleared, 2);
+    } finally {
+        global.setTimeout = realSetTimeout;
+        global.clearTimeout = realClearTimeout;
+    }
+
     let crossOriginFetches = 0;
     await rejectedWithoutCanary(exporter.readJson(
         "https://attacker.invalid/api/book/simple/info", "/api/book/simple/info", {}, "读取书籍信息",
@@ -216,6 +247,8 @@ async function rejectedWithoutCanary(promise, pattern) {
         assert.strictEqual(requests.length, 3);
         assert.strictEqual(requests.every((request) => new URL(request.url).origin === "https://fanqienovel.com"), true);
         assert.strictEqual(requests.every((request) => request.options.credentials === "include"), true);
+        assert.strictEqual(requests.every((request) => request.options.redirect === "error"), true);
+        assert.strictEqual(requests.every((request) => request.options.signal.aborted), true);
         assert.match(successAlert, /已导出 1 本书/);
     } finally {
         global.location = originalGlobals.location;

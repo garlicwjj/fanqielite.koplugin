@@ -170,18 +170,36 @@
     async function readJson(url, expectedPath, options, label, fetcher) {
         var requestUrl = officialUrl(url, expectedPath);
         if (!requestUrl) throw safeError(label + "请求地址无效，已停止导出");
-        var response;
-        try { response = await (fetcher || fetch)(requestUrl, options || { credentials: "include" }); }
-        catch (_) { throw safeError(label + "网络请求失败，已停止导出"); }
-        if (!response || response.ok !== true) {
-            var status = Number(response && response.status);
-            var suffix = Number.isInteger(status) && status >= 100 && status <= 599
-                ? "（HTTP " + status + "）" : "";
-            throw safeError(label + "请求失败" + suffix + "，已停止导出");
+        var controller = new AbortController();
+        var timedOut = false;
+        var timer = setTimeout(function () {
+            timedOut = true;
+            controller.abort();
+        }, 20000);
+        var requestOptions = Object.assign({}, options || { credentials: "include" }, {
+            redirect: "error",
+            signal: controller.signal
+        });
+        try {
+            var response;
+            try { response = await (fetcher || fetch)(requestUrl, requestOptions); }
+            catch (_) { throw safeError(label + "网络请求失败，已停止导出"); }
+            if (!response || response.ok !== true) {
+                var status = Number(response && response.status);
+                var suffix = Number.isInteger(status) && status >= 100 && status <= 599
+                    ? "（HTTP " + status + "）" : "";
+                throw safeError(label + "请求失败" + suffix + "，已停止导出");
+            }
+            var text = await responseText(response, label);
+            try { return JSON.parse(text); }
+            catch (_) { throw safeError(label + "没有返回有效 JSON，已停止导出"); }
+        } catch (error) {
+            if (timedOut) throw safeError(label + "超时，已停止导出；请检查网络后重试");
+            throw error;
+        } finally {
+            clearTimeout(timer);
+            controller.abort();
         }
-        var text = await responseText(response, label);
-        try { return JSON.parse(text); }
-        catch (_) { throw safeError(label + "没有返回有效 JSON，已停止导出"); }
     }
 
     async function run() {
