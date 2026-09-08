@@ -67,6 +67,22 @@ assert.strictEqual(JSON.stringify(privateOutput).includes(credentialCanary), fal
     "private response fields must not enter the downloaded JSON");
 
 assert.strictEqual(exporter.normalizeId("1234567890"), "1234567890");
+for (const suffix of ["", "v0/", "v1/", "v123/", "v:version/"]) {
+    const url = "https://fanqienovel.com/reading/bookapi/bookshelf/info/" + suffix + "?from=page";
+    assert.strictEqual(exporter.discoverShelfUrl([{ name: url }]), url);
+}
+for (const url of [
+    "https://attacker.invalid/reading/bookapi/bookshelf/info/v0/",
+    "https://fanqienovel.com.attacker.invalid/reading/bookapi/bookshelf/info/v0/",
+    "https://user@fanqienovel.com/reading/bookapi/bookshelf/info/v0/",
+    "http://fanqienovel.com/reading/bookapi/bookshelf/info/v0/",
+    "https://fanqienovel.com/reading/bookapi/bookshelf/info/v0/extra",
+    "https://fanqienovel.com/reading/bookapi/bookshelf/info/v0/#secret",
+    "https://fanqienovel.com/reading/bookapi/bookshelf/info/v1000/",
+    "https://fanqienovel.com/reading/bookapi/bookshelf/info/v:other/",
+    "https://fanqienovel.com/reading/bookapi/bookshelf/add/v0/",
+]) assert.strictEqual(exporter.discoverShelfUrl([{ name: url }]), "");
+assert.strictEqual(exporter.discoverShelfUrl([]), "");
 assert.strictEqual(exporter.normalizeId(1234567890), "");
 assert.strictEqual(exporter.normalizeId("9".repeat(65)), "");
 assert.strictEqual(exporter.normalizeCover("http://example.com/a.jpg"), "");
@@ -212,7 +228,7 @@ async function rejectedWithoutCanary(promise, pattern) {
         global.location = { origin: "https://fanqienovel.com", pathname: "/bookshelf" };
         global.performance = { getEntriesByType: () => [
             { name: "https://attacker.invalid/reading/bookapi/bookshelf/info/?cookie=" + credentialCanary },
-            { name: "https://fanqienovel.com/reading/bookapi/bookshelf/info/?from=page" },
+            { name: "https://fanqienovel.com/reading/bookapi/bookshelf/info/v:version/?from=page" },
             { name: "https://fanqienovel.com/api/reader/book/progress?from=page" }
         ] };
         global.fetch = async (url, options) => {
@@ -245,6 +261,7 @@ async function rejectedWithoutCanary(promise, pattern) {
         assert.strictEqual(downloaded.books[0].title, "测试 书籍");
         assert.strictEqual(downloadedText.includes(credentialCanary), false);
         assert.strictEqual(requests.length, 3);
+        assert.strictEqual(new URL(requests[0].url).pathname, "/reading/bookapi/bookshelf/info/v:version/");
         assert.strictEqual(requests.every((request) => new URL(request.url).origin === "https://fanqienovel.com"), true);
         assert.strictEqual(requests.every((request) => request.options.credentials === "include"), true);
         assert.strictEqual(requests.every((request) => request.options.redirect === "error"), true);
