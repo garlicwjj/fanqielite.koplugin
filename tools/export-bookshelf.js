@@ -140,7 +140,7 @@
             var parsed;
             try { parsed = new URL(name); }
             catch (_) { continue; }
-            if (!/^\/reading\/bookapi\/bookshelf\/info\/(?:v[0-9]{1,3}\/)?$/.test(parsed.pathname)) continue;
+            if (!/^\/reading\/bookapi\/bookshelf\/info\/(?:v(?:[0-9]{1,3}|:version)\/)?$/.test(parsed.pathname)) continue;
             var url = officialUrl(name, parsed.pathname);
             if (url) return url;
         }
