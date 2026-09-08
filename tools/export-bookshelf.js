@@ -133,6 +133,20 @@
         return new TextEncoder().encode(text).length;
     }
 
+    function discoverShelfUrl(entries) {
+        for (var index = entries.length - 1; index >= 0; index -= 1) {
+            var name = entries[index] && entries[index].name;
+            if (typeof name !== "string") continue;
+            var parsed;
+            try { parsed = new URL(name); }
+            catch (_) { continue; }
+            if (!/^\/reading\/bookapi\/bookshelf\/info\/(?:v[0-9]{1,3}\/)?$/.test(parsed.pathname)) continue;
+            var url = officialUrl(name, parsed.pathname);
+            if (url) return url;
+        }
+        return "";
+    }
+
     async function responseText(response, label) {
         var declared = response.headers && response.headers.get
             ? Number(response.headers.get("Content-Length")) : NaN;
@@ -208,9 +222,9 @@
             throw safeError("请先在 https://fanqienovel.com/bookshelf 登录并打开书架页面");
         }
         var entries = performance.getEntriesByType("resource");
-        var shelfPath = "/reading/bookapi/bookshelf/info/";
-        var shelfUrl = discoverUrl(entries, shelfPath);
+        var shelfUrl = discoverShelfUrl(entries);
         if (!shelfUrl) throw safeError("没有找到官方书架请求，请刷新页面、等待书架显示后再运行");
+        var shelfPath = new URL(shelfUrl).pathname;
 
         var shelfPayload = await readJson(shelfUrl, shelfPath,
             { credentials: "include" }, "读取官方书架");
@@ -266,6 +280,7 @@
         buildExport: buildExport,
         cleanText: cleanText,
         discoverUrl: discoverUrl,
+        discoverShelfUrl: discoverShelfUrl,
         normalizeCover: normalizeCover,
         normalizeId: normalizeId,
         officialUrl: officialUrl,
