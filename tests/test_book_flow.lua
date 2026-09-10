@@ -63,6 +63,7 @@ local book = {
     chapters = {
         { id = "7134567890123456701", title = "第一章" },
         { id = "7134567890123456702", title = "第二章" },
+        { id = "7134567890123456703", title = "第三章" },
     },
     current_index = 2,
     directory_updated_at = 100,
@@ -78,12 +79,31 @@ plugin:show_book(book_id)
 assert(shown and shown.title == "详情页测试书\n测试作者", "book details did not open")
 assert(shown.item_table[1].text == "继续阅读（第 2 章）",
     "book details do not lead with the primary reading action")
-assert(shown.item_table[2].text:find("本地状态：目录 2 章", 1, true),
+assert(shown.item_table[2].text:find("本地状态：目录 3 章", 1, true),
     "local status did not immediately follow the primary action")
 assert(shown.item_table[3].text == "章节目录", "chapter actions changed order")
+assert(shown.item_table[4].text == "上一章" and shown.item_table[5].text == "下一章",
+    "middle chapter did not expose both valid adjacent actions")
 shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 2,
     "book primary action did not open the current chapter")
+
+local function has_item(text)
+    for _, item in ipairs(shown.item_table or {}) do
+        if item.text == text then return true end
+    end
+    return false
+end
+
+book.current_index = 1
+plugin:show_book(book_id)
+assert(not has_item("上一章"), "first chapter exposed an unavailable previous action")
+assert(has_item("下一章"), "first chapter hid the available next action")
+
+book.current_index = 3
+plugin:show_book(book_id)
+assert(has_item("上一章"), "last chapter hid the available previous action")
+assert(not has_item("下一章"), "last chapter exposed an unavailable next action")
 
 book.chapters = {}
 book.current_index = 1
