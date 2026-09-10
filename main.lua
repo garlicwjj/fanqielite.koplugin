@@ -630,8 +630,12 @@ function FanqieLite:show_book(book_id)
     }
     if #book.chapters > 0 then
         items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
-        items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
-        items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
+        if book.current_index > 1 then
+            items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
+        end
+        if book.current_index < #book.chapters then
+            items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
+        end
     end
     if #book.chapters > 0 then
         items[#items + 1] = {
