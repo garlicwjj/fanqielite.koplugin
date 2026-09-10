@@ -608,18 +608,12 @@ function FanqieLite:show_book(book_id)
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
     if not saved then self:info(save_err); return end
-    local items = {{
-        text = self:book_local_status(book, cached_count),
-        callback = function() end,
-    }}
+    local items = {}
     if #book.chapters > 0 then
         items[#items + 1] = {
             text = "继续阅读（第 " .. tostring(book.current_index) .. " 章）",
             callback = function() self:open_chapter(book.id, book.current_index) end,
         }
-        items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
-        items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
-        items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
     else
         items[#items + 1] = {
             text = _("联网获取目录并开始阅读"), callback = function()
@@ -629,6 +623,15 @@ function FanqieLite:show_book(book_id)
                 end)
             end,
         }
+    end
+    items[#items + 1] = {
+        text = self:book_local_status(book, cached_count),
+        callback = function() end,
+    }
+    if #book.chapters > 0 then
+        items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
+        items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
+        items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
     end
     if #book.chapters > 0 then
         items[#items + 1] = {
