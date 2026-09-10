@@ -67,6 +67,13 @@ assert.strictEqual(JSON.stringify(privateOutput).includes(credentialCanary), fal
     "private response fields must not enter the downloaded JSON");
 
 assert.strictEqual(exporter.normalizeId("1234567890"), "1234567890");
+const diagnostic = exporter.authorDiagnostics({ code: 0, data: { bookList: [
+    { author: credentialCanary, author_info: { token: credentialCanary }, [credentialCanary]: credentialCanary },
+    { author: null, authors: [credentialCanary] },
+] } });
+assert.strictEqual(JSON.stringify(diagnostic).includes(credentialCanary), false);
+assert.deepStrictEqual(diagnostic.author_fields[0], { field: "author", types: { string: 1, null: 1 } });
+assert.strictEqual(diagnostic.count, 2);
 for (const suffix of ["", "v0/", "v1/", "v123/", "v:version/"]) {
     const url = "https://fanqienovel.com/reading/bookapi/bookshelf/info/" + suffix + "?from=page";
     assert.strictEqual(exporter.discoverShelfUrl([{ name: url }]), url);
@@ -267,6 +274,16 @@ async function rejectedWithoutCanary(promise, pattern) {
         assert.strictEqual(requests.every((request) => request.options.redirect === "error"), true);
         assert.strictEqual(requests.every((request) => request.options.signal.aborted), true);
         assert.match(successAlert, /已导出 1 本书/);
+        requests.length = 0;
+        downloadedBlob = undefined;
+        downloadName = undefined;
+        const diagnosticResult = await exporter.run({ diagnostic: true });
+        assert.strictEqual(diagnosticResult.count, 1);
+        assert.strictEqual(requests.length, 2, "diagnostic must not request progress");
+        assert.strictEqual(downloadedBlob, undefined, "diagnostic must not create a download");
+        assert.strictEqual(downloadName, undefined);
+        assert.strictEqual(successAlert.includes(credentialCanary), false);
+        assert.match(successAlert, /未导出文件/);
     } finally {
         global.location = originalGlobals.location;
         global.performance = originalGlobals.performance;
@@ -282,6 +299,8 @@ async function rejectedWithoutCanary(promise, pattern) {
     assert.strictEqual(untrustedFailure.includes(credentialCanary), false);
     assert.strictEqual(/error|message|String\s*\(/.test(untrustedFailure), false);
     const source = fs.readFileSync(require.resolve("../tools/export-bookshelf.js"), "utf8");
+    assert.match(source, /FANQIELITE_AUTHOR_DIAGNOSTIC\s*===\s*true/,
+        "browser diagnostic mode must require an explicit exact boolean opt-in");
     [
         /console\s*\./,
         /document\s*\.\s*cookie/,

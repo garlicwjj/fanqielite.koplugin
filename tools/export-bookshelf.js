@@ -4,7 +4,8 @@
     if (typeof module === "object" && module.exports) {
         module.exports = api;
     } else {
-        api.run().catch(function (error) {
+        var options = root.FANQIELITE_AUTHOR_DIAGNOSTIC === true ? { diagnostic: true } : undefined;
+        api.run(options).catch(function (error) {
             root.alert(api.publicFailureMessage(error));
         });
     }
@@ -216,7 +217,26 @@
         }
     }
 
-    async function run() {
+    function authorDiagnostics(payload) {
+        var data = responseData(payload, "读取书籍信息");
+        var list = Array.isArray(data.bookList) ? data.bookList : data.book_list;
+        if (!Array.isArray(list) || list.length > MAX_BOOKS) {
+            throw safeError("详情列表结构无法诊断，已停止");
+        }
+        var fields = ["author", "author_name", "authorName", "authors", "author_list", "author_info"];
+        return { count: list.length, author_fields: fields.map(function (field) {
+            var types = {};
+            list.forEach(function (item) {
+                var value = item && Object.prototype.hasOwnProperty.call(item, field) ? item[field] : undefined;
+                var type = value === undefined ? "missing" : value === null ? "null"
+                    : Array.isArray(value) ? "array" : typeof value;
+                types[type] = (types[type] || 0) + 1;
+            });
+            return { field: field, types: types };
+        }) };
+    }
+
+    async function run(options) {
         if (location.origin !== OFFICIAL_ORIGIN
                 || (location.pathname !== "/bookshelf" && location.pathname !== "/bookshelf/")) {
             throw safeError("请先在 https://fanqienovel.com/bookshelf 登录并打开书架页面");
@@ -249,6 +269,11 @@
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
             body: JSON.stringify({ book_ids: ids })
         }, "读取书籍信息");
+        if (options && options.diagnostic === true) {
+            var report = authorDiagnostics(detailPayload);
+            alert("Fanqie Lite 作者字段诊断（未导出文件）\n" + JSON.stringify(report));
+            return report;
+        }
         var progressPath = "/api/reader/book/progress";
         var progressUrl = discoverUrl(entries, progressPath);
         var progressPayload = progressUrl
@@ -278,6 +303,7 @@
 
     return {
         buildExport: buildExport,
+        authorDiagnostics: authorDiagnostics,
         cleanText: cleanText,
         discoverUrl: discoverUrl,
         discoverShelfUrl: discoverShelfUrl,
