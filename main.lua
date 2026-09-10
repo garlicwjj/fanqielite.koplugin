@@ -538,7 +538,7 @@ end
 
 function FanqieLite:show_home()
     local sort_names = { recent = "最近阅读", title = "书名", added = "最近添加" }
-    local items = {
+    local onboarding = {
         {
             text = _("扫码导入我的番茄书架（实验性）"),
             callback = function() self:show_qr_import_status() end,
@@ -549,7 +549,28 @@ function FanqieLite:show_home()
             callback = function() self:choose_import_file() end,
         },
     }
+    local items = {}
     if #self.library.books > 0 then
+        local recent = Library.sorted({ sort = "recent", books = self.library.books })[1]
+        if recent then
+            if #recent.chapters > 0 then
+                local has_progress = (tonumber(recent.last_opened_at) or 0) > 0
+                    or type(recent.imported_progress) == "table"
+                local action = has_progress and "继续阅读" or "开始阅读"
+                items[#items + 1] = {
+                    text = action .. "：《" .. recent.title .. "》（第 "
+                        .. tostring(recent.current_index) .. " 章）",
+                    callback = function()
+                        self:open_chapter(recent.id, recent.current_index)
+                    end,
+                }
+            else
+                items[#items + 1] = {
+                    text = "打开：《" .. recent.title .. "》（待获取目录）",
+                    callback = function() self:show_book(recent.id) end,
+                }
+            end
+        end
         items[#items + 1] = {
             text = "排序：" .. (sort_names[self.library.sort] or sort_names.recent),
             callback = function() self:cycle_sort() end,
@@ -565,7 +586,11 @@ function FanqieLite:show_home()
                 callback = function() self:show_book(book_id) end,
             }
         end
+        items[#items + 1] = onboarding[2]
+        items[#items + 1] = onboarding[3]
+        items[#items + 1] = onboarding[1]
     else
+        for _, item in ipairs(onboarding) do items[#items + 1] = item end
         items[#items + 1] = {
             text = _("书架还是空的，请从上面选择一种添加方式"),
             callback = function() end,
