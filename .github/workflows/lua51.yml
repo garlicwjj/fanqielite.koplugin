@@ -17,15 +17,30 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Lua 5.1
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes lua5.1
+        run: sudo apt-get install --yes lua5.1
 
       - name: Check Lua 5.1 syntax
         run: find . -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
-      - name: Run core tests
-        run: lua5.1 tests/test_core.lua
+      - name: Run tests
+        run: |
+          set -eu
+          for test_file in tests/test_*.lua; do
+            lua5.1 "$test_file"
+          done
+
+      - name: Check browser exporter
+        run: |
+          node --check tools/export-bookshelf.js
+          node tests/test_export_bookshelf.js
+          node --check tools/compatibility-evidence.js
+          node tests/test_compatibility_evidence.js
+
+      - name: Check candidate package
+        run: |
+          sh -n tools/build-candidate.sh
+          sh -n tests/test_candidate_package.sh
+          tests/test_candidate_package.sh

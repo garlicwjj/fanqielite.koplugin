@@ -1,0 +1,202 @@
+local dump = require("dump")
+local ffiUtil = require("ffi/util")
+local SafeTemporary = require("fanqielite.safetemporary")
+
+local Persistence = {}
+
+local sensitive_exact_keys = {
+    account = true,
+    accountid = true,
+    authheader = true,
+    authheaders = true,
+    avatar = true,
+    bearer = true,
+    deviceid = true,
+    header = true,
+    headers = true,
+    login = true,
+    loginticket = true,
+    mobile = true,
+    phone = true,
+    qr = true,
+    sid = true,
+    telephone = true,
+    ticket = true,
+    uid = true,
+    userid = true,
+    username = true,
+}
+
+local sensitive_key_fragments = {
+    "authorization",
+    "cookie",
+    "credential",
+    "csrf",
+    "passport",
+    "password",
+    "qrcode",
+    "qrpayload",
+    "secret",
+    "session",
+    "token",
+}
+
+local function contains_sensitive_field(value)
+    if type(value) ~= "table" then return false end
+    local pending, seen = { value }, {}
+    while #pending > 0 do
+        local current = table.remove(pending)
+        if not seen[current] then
+            seen[current] = true
+            for key, child in pairs(current) do
+                if type(key) == "string" then
+                    local normalized = key:lower():gsub("[^%a%d]", "")
+                    if sensitive_exact_keys[normalized] then return true end
+                    for _, fragment in ipairs(sensitive_key_fragments) do
+                        if normalized:find(fragment, 1, true) then return true end
+                    end
+                end
+                if type(child) == "table" and not seen[child] then
+                    pending[#pending + 1] = child
+                end
+            end
+        end
+    end
+    return false
+end
+
+function Persistence.has_sensitive_fields(value)
+    return contains_sensitive_field(value)
+end
+
+function Persistence.copy(value)
+    if type(value) ~= "table" then return value end
+    local output, seen = {}, {}
+    local sources, targets = { value }, { output }
+    seen[value] = output
+    while #sources > 0 do
+        local index = #sources
+        local source, target = sources[index], targets[index]
+        sources[index], targets[index] = nil, nil
+        for key, item in pairs(source) do
+            local copied_key = key
+            if type(key) == "table" then
+                copied_key = seen[key]
+                if not copied_key then
+                    copied_key = {}
+                    seen[key] = copied_key
+                    sources[#sources + 1] = key
+                    targets[#targets + 1] = copied_key
+                end
+            end
+            local copied_item = item
+            if type(item) == "table" then
+                copied_item = seen[item]
+                if not copied_item then
+                    copied_item = {}
+                    seen[item] = copied_item
+                    sources[#sources + 1] = item
+                    targets[#targets + 1] = copied_item
+                end
+            end
+            target[copied_key] = copied_item
+        end
+    end
+    return output
+end
+
+function Persistence.equal(left, right)
+    local pending, seen = { { left, right } }, {}
+    while #pending > 0 do
+        local pair = table.remove(pending)
+        local left_value, right_value = pair[1], pair[2]
+        if type(left_value) ~= type(right_value) then return false end
+        if type(left_value) ~= "table" then
+            if left_value ~= right_value then return false end
+        elseif seen[left_value] then
+            if seen[left_value] ~= right_value then return false end
+        else
+            seen[left_value] = right_value
+            for key, value in pairs(left_value) do
+                if right_value[key] == nil then return false end
+                pending[#pending + 1] = { value, right_value[key] }
+            end
+            for key in pairs(right_value) do
+                if left_value[key] == nil then return false end
+            end
+        end
+    end
+    return true
+end
+
+local function verify(path, expected)
+    local ok, loaded = pcall(dofile, path)
+    if not ok or type(loaded) ~= "table" then return nil, "写入后的设置文件无法读取" end
+    if not Persistence.equal(loaded, expected) then return nil, "写入后的设置内容校验不一致" end
+    return true
+end
+
+local function discard(path)
+    pcall(os.remove, path)
+end
+
+local function atomic_write(path, data)
+    local serialized_ok, serialized = pcall(dump, data, nil, true)
+    if not serialized_ok or type(serialized) ~= "string" then
+        return nil, "无法序列化插件设置"
+    end
+    local temporary = path .. ".tmp"
+    local prepared, prepare_err = SafeTemporary.prepare(temporary, "临时设置文件")
+    if not prepared then return nil, prepare_err end
+    local open_call, file = pcall(io.open, temporary, "wb")
+    if not open_call or not file then return nil, "无法创建临时设置文件" end
+
+    local write_call, wrote = pcall(file.write, file, "return " .. serialized .. "\n")
+    local sync_call, synced = pcall(ffiUtil.fsyncOpenedFile, file)
+    local close_call, closed = pcall(file.close, file)
+    if not write_call or not wrote then
+        discard(temporary)
+        return nil, "写入临时设置失败"
+    end
+    if not sync_call or not synced then
+        discard(temporary)
+        return nil, "同步临时设置失败"
+    end
+    if not close_call or not closed then
+        discard(temporary)
+        return nil, "完成设置写入失败"
+    end
+    local valid, validation_err = verify(temporary, data)
+    if not valid then discard(temporary); return nil, validation_err end
+
+    local rename_call, renamed = pcall(os.rename, temporary, path)
+    if not rename_call or not renamed then
+        discard(temporary)
+        return nil, "无法原子替换设置文件"
+    end
+    local valid, validation_err = verify(path, data)
+    if not valid then return nil, validation_err end
+    -- The data file itself is already fsync'ed. Directory fsync is best-effort
+    -- because a failed directory sync happens after the atomic rename.
+    pcall(ffiUtil.fsyncDirectory, path)
+    return true
+end
+
+function Persistence.write(path, candidate, previous)
+    if type(path) ~= "string" or path == "" then return nil, "设置文件路径无效" end
+    if type(candidate) ~= "table" then return nil, "插件设置必须是对象" end
+    if Persistence.has_sensitive_fields(candidate)
+            or Persistence.has_sensitive_fields(previous) then
+        return nil, "拒绝保存账号凭证、二维码会话或授权请求头字段"
+    end
+    if previous ~= nil then
+        local backup_ok, backup_err = atomic_write(path .. ".old", previous)
+        if not backup_ok then
+            local detail = type(backup_err) == "string" and backup_err or "备份写入失败"
+            return nil, "无法保存上一版设置：" .. detail .. "；本次设置未写入"
+        end
+    end
+    return atomic_write(path, candidate)
+end
+
+return Persistence
