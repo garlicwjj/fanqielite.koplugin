@@ -24,6 +24,22 @@ local Search = {
         return "https://fanqienovel.com/search", value
     end,
 }
+local Library = {}
+function Library.find(library, book_id)
+    for _, book in ipairs(library.books or {}) do
+        if book.id == book_id then return book end
+    end
+end
+function Library.sorted(library)
+    local books = {}
+    for _, book in ipairs(library.books or {}) do books[#books + 1] = book end
+    table.sort(books, function(a, b)
+        if library.sort == "title" and a.title ~= b.title then return a.title < b.title end
+        if a.last_opened_at ~= b.last_opened_at then return a.last_opened_at > b.last_opened_at end
+        return a.id < b.id
+    end)
+    return books
+end
 
 local stubs = {
     ["ui/widget/confirmbox"] = {},
@@ -46,7 +62,7 @@ local stubs = {
     gettext = function(text) return text end,
     ["fanqielite.export"] = {},
     ["fanqielite.import"] = {},
-    ["fanqielite.library"] = {},
+    ["fanqielite.library"] = Library,
     ["fanqielite.networktask"] = {},
     ["fanqielite.parser"] = Parser,
     ["fanqielite.persistence"] = {},
@@ -124,6 +140,66 @@ assert(search_calls == 2 and searched_query == "三体 刘慈欣",
 parser_result = "7633875868615461950"
 plugin:submit_book_input("https://fanqienovel.com/page/7633875868615461950")
 assert(loaded_book_id == parser_result, "valid official link did not load the parsed book")
+
+local unread_id = "7134567890123456789"
+local recent_id = "7234567890123456789"
+local opened_id, opened_index, selected_id
+plugin.library = { version = 1, sort = "title", books = {
+    {
+        id = unread_id, title = "A 未读书", author = "", chapters = {
+            { id = "7134567890123456701", title = "第一章" },
+        }, current_index = 1, last_opened_at = 0,
+    },
+    {
+        id = recent_id, title = "B 最近阅读", author = "作者乙", chapters = {
+            { id = "7234567890123456701", title = "第一章" },
+            { id = "7234567890123456702", title = "第二章" },
+        }, current_index = 2, last_opened_at = 900,
+    },
+} }
+plugin.active_book_id = unread_id
+plugin.open_chapter = function(_, book_id, index)
+    opened_id, opened_index = book_id, index
+end
+plugin.show_book = function(_, book_id) selected_id = book_id end
+plugin:show_home()
+assert(shown.item_table[1].text == "继续阅读：《B 最近阅读》（第 2 章）",
+    "non-empty home does not lead with the most recently read book")
+shown.item_table[1].callback()
+assert(opened_id == recent_id and opened_index == 2,
+    "home primary action did not directly continue the recent chapter")
+assert(shown.item_table[2].text == "排序：书名", "sort control did not follow the primary action")
+assert(shown.item_table[3].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
+shown.item_table[3].callback()
+assert(selected_id == unread_id, "book row no longer opens its details")
+assert(shown.item_table[5].text == "搜索或添加一本书", "visible add action missing below books")
+assert(shown.item_table[6].text == "从文件导入书架", "visible file import missing below books")
+assert(shown.item_table[7].text == "扫码导入我的番茄书架（实验性）",
+    "visible QR import missing below books")
+
+plugin.library = { version = 1, sort = "recent", books = {{
+    id = unread_id, title = "尚未开始", author = "", chapters = {
+        { id = "7134567890123456701", title = "第一章" },
+    }, current_index = 1, last_opened_at = 0,
+}} }
+opened_id, opened_index = nil, nil
+plugin:show_home()
+assert(shown.item_table[1].text == "开始阅读：《尚未开始》（第 1 章）",
+    "unread book was incorrectly presented as continued reading")
+shown.item_table[1].callback()
+assert(opened_id == unread_id and opened_index == 1,
+    "start-reading action did not open the first current chapter")
+
+plugin.library = { version = 1, sort = "recent", books = {{
+    id = unread_id, title = "等待目录", author = "", chapters = {},
+    current_index = 1, last_opened_at = 0,
+}} }
+selected_id = nil
+plugin:show_home()
+assert(shown.item_table[1].text == "打开：《等待目录》（待获取目录）",
+    "book without a directory was presented as directly readable")
+shown.item_table[1].callback()
+assert(selected_id == unread_id, "pending-directory action did not open safe book details")
 
 plugin:show_settings()
 assert(shown and shown.title == "设置与数据", "settings menu did not open")
