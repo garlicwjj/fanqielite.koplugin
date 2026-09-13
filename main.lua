@@ -640,7 +640,10 @@ function FanqieLite:show_book(book_id)
     if #book.chapters > 0 then
         items[#items + 1] = {
             text = _("刷新书籍信息与目录"), callback = function()
-                self:with_network(function() self:refresh_book(book.id) end)
+                self:with_network(function()
+                    self:refresh_book(book.id)
+                    UIManager:nextTick(function() self:show_book(book.id) end)
+                end)
             end,
         }
     end

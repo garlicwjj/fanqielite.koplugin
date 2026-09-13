@@ -6,6 +6,7 @@ function Menu:new(options) return options end
 
 local UIManager = {
     show = function(_, widget) shown = widget end,
+    nextTick = function(_, callback) callback() end,
 }
 
 local WidgetContainer = {}
@@ -88,12 +89,26 @@ shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 2,
     "book primary action did not open the current chapter")
 
-local function has_item(text)
+local function find_item(text)
     for _, item in ipairs(shown.item_table or {}) do
-        if item.text == text then return true end
+        if item.text == text then return item end
     end
-    return false
 end
+
+local function has_item(text)
+    return find_item(text) ~= nil
+end
+
+local refresh_item = assert(find_item("刷新书籍信息与目录"),
+    "book details did not expose the directory refresh action")
+local refreshed_id, reopened_id
+plugin.with_network = function(_, callback) callback() end
+plugin.refresh_book = function(_, id) refreshed_id = id end
+plugin.show_book = function(_, id) reopened_id = id end
+refresh_item.callback()
+assert(refreshed_id == book_id, "refresh action targeted the wrong book")
+assert(reopened_id == book_id, "successful refresh left stale book details visible")
+plugin.show_book = FanqieLite.show_book
 
 book.current_index = 1
 plugin:show_book(book_id)
