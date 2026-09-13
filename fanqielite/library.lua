@@ -303,7 +303,7 @@ function Library.touch(library, book_id, chapter_index, now)
     return book
 end
 
-function Library.take_imported_position(book, chapter_index, has_local_position)
+function Library.inspect_imported_position(book, chapter_index, has_local_position)
     if type(book) ~= "table" or type(book.chapters) ~= "table"
             or type(book.imported_progress) ~= "table" then
         return nil, false
@@ -318,9 +318,15 @@ function Library.take_imported_position(book, chapter_index, has_local_position)
     if not position or position ~= position or position < 0 or position > 1 then
         return nil, false
     end
-    book.imported_progress = nil
     if has_local_position then return nil, true end
     return position, true
+end
+
+function Library.take_imported_position(book, chapter_index, has_local_position)
+    local position, pending = Library.inspect_imported_position(
+        book, chapter_index, has_local_position)
+    if pending then book.imported_progress = nil end
+    return position, pending
 end
 
 function Library.remove(library, book_id)
