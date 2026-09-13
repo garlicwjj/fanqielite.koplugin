@@ -85,7 +85,7 @@ function validateRecord(record) {
     string(record.environment.kindle_model, "kindle_model", /^[A-Za-z0-9 ._+-]{1,40}$/);
     string(record.environment.firmware, "firmware", /^[A-Za-z0-9._+-]{1,40}$/);
     string(record.environment.koreader, "koreader", /^[A-Za-z0-9._+-]{1,40}$/);
-    string(record.environment.plugin_commit, "plugin_commit", /^[0-9a-f]{7,40}$/);
+    string(record.environment.plugin_commit, "plugin_commit", /^[0-9a-f]{40}$/);
 
     exactKeys(record.book, EXACT_KEYS.book, "book");
     string(record.book.id, "book.id", ID_PATTERN);
