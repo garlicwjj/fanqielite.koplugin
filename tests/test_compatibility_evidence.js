@@ -44,6 +44,20 @@ function record(overrides = {}) {
 
 validateRecord(record());
 
+const maximumLengthIds = record();
+maximumLengthIds.book.id = "7".repeat(64);
+maximumLengthIds.chapter.id = "8".repeat(64);
+validateRecord(maximumLengthIds);
+
+assert.throws(() => validateRecord({
+    ...record(),
+    book: { ...record().book, id: "7".repeat(65) },
+}), /book\.id.*格式无效/);
+assert.throws(() => validateRecord({
+    ...record(),
+    chapter: { ...record().chapter, id: "8".repeat(65) },
+}), /chapter\.id.*格式无效/);
+
 assert.throws(() => validateRecord({ ...record(), cookie: "secret" }), /白名单/);
 assert.throws(() => validateRecord({ ...record(), content: "novel text" }), /白名单/);
 assert.throws(() => validateRecord({ ...record(), book: { ...record().book, title: "不应保存书名" } }), /白名单/);
