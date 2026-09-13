@@ -29,7 +29,7 @@ const EXACT_KEYS = {
     root: ["format", "version", "tested_at", "environment", "book", "chapter", "observation"],
     environment: ["kindle_model", "firmware", "koreader", "plugin_commit"],
     book: ["id", "chapter_count", "serialization", "category"],
-    chapter: ["position", "id"],
+    chapter: ["position", "ordinal", "id"],
     observation: [
         "response", "result", "visible_characters", "claimed_characters",
         "known_pua", "unknown_pua", "cache_saved", "garbled",
@@ -72,7 +72,7 @@ function boolean(value, label) {
 
 function validateRecord(record) {
     exactKeys(record, EXACT_KEYS.root, "记录");
-    if (record.format !== "fanqielite-compatibility-record" || record.version !== 1) {
+    if (record.format !== "fanqielite-compatibility-record" || record.version !== 2) {
         fail("记录格式或版本不受支持");
     }
     string(record.tested_at, "tested_at", /^\d{4}-\d{2}-\d{2}$/);
@@ -96,6 +96,14 @@ function validateRecord(record) {
 
     exactKeys(record.chapter, EXACT_KEYS.chapter, "chapter");
     oneOf(record.chapter.position, "chapter.position", ["first", "middle", "latest"]);
+    integer(record.chapter.ordinal, "chapter.ordinal");
+    const expectedOrdinal = record.chapter.position === "first" ? 1
+        : (record.chapter.position === "middle"
+            ? Math.floor((record.book.chapter_count + 1) / 2)
+            : record.book.chapter_count);
+    if (record.chapter.ordinal !== expectedOrdinal) {
+        fail(`chapter.ordinal 与 ${record.chapter.position} 目录位置不一致`);
+    }
     string(record.chapter.id, "chapter.id", ID_PATTERN);
 
     exactKeys(record.observation, EXACT_KEYS.observation, "observation");

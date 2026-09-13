@@ -16,7 +16,7 @@ const {
 function record(overrides = {}) {
     const value = {
         format: "fanqielite-compatibility-record",
-        version: 1,
+        version: 2,
         tested_at: "2026-08-16",
         environment: {
             kindle_model: "PW3",
@@ -25,7 +25,7 @@ function record(overrides = {}) {
             plugin_commit: "43864ae",
         },
         book: { id: "7633875868615461950", chapter_count: 88, serialization: "ongoing", category: "male" },
-        chapter: { position: "first", id: "7633875868615461951" },
+        chapter: { position: "first", ordinal: 1, id: "7633875868615461951" },
         observation: {
             response: "public_full",
             result: "success",
@@ -43,6 +43,8 @@ function record(overrides = {}) {
 }
 
 validateRecord(record());
+
+assert.throws(() => validateRecord({ ...record(), version: 1 }), /版本不受支持/);
 
 const maximumLengthIds = record();
 maximumLengthIds.book.id = "7".repeat(64);
@@ -66,7 +68,7 @@ assert.throws(() => validateRecord({ ...record(), tested_at: "2026-02-31" }), /�
 assert.throws(() => validateRecord({ ...record(), book: { ...record().book, chapter_count: 0 } }), /大于 0/);
 
 const locked = record();
-locked.chapter = { position: "latest", id: "7633875868615461952" };
+locked.chapter = { position: "latest", ordinal: 88, id: "7633875868615461952" };
 locked.observation = {
     ...locked.observation,
     response: "locked",
@@ -178,6 +180,8 @@ function completeMatrix() {
                 };
                 value.chapter = {
                     position,
+                    ordinal: position === "first" ? 1
+                        : (position === "middle" ? Math.floor((band.chapters + 1) / 2) : band.chapters),
                     id: String(9000000000 + bookNumber * 10 + positionIndex),
                 };
                 value.observation = {
@@ -234,7 +238,11 @@ assert(incomplete.errors.some((error) => error.includes("90 个章节场景")));
 assert(incomplete.errors.some((error) => error.includes("前、中、末")));
 
 const wrongBand = completeMatrix();
-wrongBand.slice(0, 3).forEach((value) => { value.book.chapter_count = 50; });
+wrongBand.slice(0, 3).forEach((value) => {
+    value.book.chapter_count = 50;
+    value.chapter.ordinal = value.chapter.position === "first" ? 1
+        : (value.chapter.position === "middle" ? 25 : 50);
+});
 assert(evaluateMatrix(wrongBand).errors.some((error) => error.includes("少于 50 章")));
 
 const wrongSerialization = completeMatrix();
@@ -282,10 +290,15 @@ assert(evaluateMatrix(missingFemale).errors.some((error) => error.includes("女�
 
 const repeatedPosition = completeMatrix();
 repeatedPosition[2].chapter.position = "middle";
+repeatedPosition[2].chapter.ordinal = 15;
 assert(evaluateMatrix(repeatedPosition).errors.some((error) => error.includes("前、中、末")));
 
+const incorrectOrdinal = completeMatrix();
+incorrectOrdinal[1].chapter.ordinal += 1;
+assert.throws(() => evaluateMatrix(incorrectOrdinal), /目录位置不一致/);
+
 const inconsistentMetadata = completeMatrix();
-inconsistentMetadata[1].book.chapter_count = 31;
+inconsistentMetadata[0].book.chapter_count = 31;
 assert(evaluateMatrix(inconsistentMetadata).errors.some((error) => error.includes("元数据不一致")));
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "fanqielite-compatibility-"));
