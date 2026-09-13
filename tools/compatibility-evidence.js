@@ -7,6 +7,7 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_FINGERPRINT_BYTES = 2 * 1024 * 1024;
 const MAX_STRUCTURE_DEPTH = 64;
 const MAX_STRUCTURE_NODES = 50000;
+const ID_PATTERN = /^\d{10,64}$/;
 const REQUIRED_POSITIONS = ["first", "middle", "latest"];
 const BAND_QUOTAS = [
     { key: "under_50", label: "少于 50 章", minimum: 5, matches: (count) => count < 50 },
@@ -87,7 +88,7 @@ function validateRecord(record) {
     string(record.environment.plugin_commit, "plugin_commit", /^[0-9a-f]{7,40}$/);
 
     exactKeys(record.book, EXACT_KEYS.book, "book");
-    string(record.book.id, "book.id", /^\d{10,30}$/);
+    string(record.book.id, "book.id", ID_PATTERN);
     integer(record.book.chapter_count, "book.chapter_count");
     if (record.book.chapter_count < 1) fail("book.chapter_count 必须大于 0");
     oneOf(record.book.serialization, "book.serialization", ["completed", "ongoing", "unknown"]);
@@ -95,7 +96,7 @@ function validateRecord(record) {
 
     exactKeys(record.chapter, EXACT_KEYS.chapter, "chapter");
     oneOf(record.chapter.position, "chapter.position", ["first", "middle", "latest"]);
-    string(record.chapter.id, "chapter.id", /^\d{10,30}$/);
+    string(record.chapter.id, "chapter.id", ID_PATTERN);
 
     exactKeys(record.observation, EXACT_KEYS.observation, "observation");
     oneOf(record.observation.response, "observation.response", [
