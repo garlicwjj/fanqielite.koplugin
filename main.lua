@@ -768,7 +768,8 @@ function FanqieLite:open_file(path, imported_position)
         FileManager.openFile, self.ui, path, nil, nil, nil, after_open_callback)
     if not open_call then
         self:info("无法打开章节文件，已停止进入阅读器。\n\n"
-            .. "本地书架和缓存没有删除；继续阅读位置可能已更新到本章。"
+            .. "本地书架和缓存没有删除；从网页导入的阅读位置仍会保留供重试。"
+            .. "当前书籍可能已记录为本章。"
             .. "请返回书籍页重试；若持续出现，请重启 KOReader。")
         return nil
     end
@@ -783,13 +784,29 @@ function FanqieLite:prepare_chapter_open(book, index, path)
             .. "本地书架、阅读进度和缓存没有改变。"
             .. "请返回书籍页重试；若持续出现，请重启 KOReader。"
     end
-    local imported_position = Library.take_imported_position(
+    local imported_position, pending_consumption = Library.inspect_imported_position(
         book, index, has_local_position)
     Library.touch(self.library, book.id, index)
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
     if not saved then return nil, save_err end
-    return true, imported_position
+    return true, imported_position, pending_consumption
+end
+
+function FanqieLite:open_prepared_chapter(
+        book, index, path, imported_position, pending_consumption)
+    if not self:open_file(path, imported_position) then return nil end
+    if not pending_consumption then return true end
+
+    Library.take_imported_position(book, index, true)
+    local saved = self:save_state()
+    if not saved then
+        self:info("章节已经打开，但无法保存导入位置的一次性清理。\n\n"
+            .. "本地书架已恢复到打开前的安全状态；导入位置没有丢失。"
+            .. "如果 KOReader 已生成本机阅读位置，下次打开会优先使用它；"
+            .. "否则可能再次应用导入位置。请检查存储空间或只读状态后重试。")
+    end
+    return true
 end
 
 function FanqieLite:open_chapter(book_id, index)
@@ -802,9 +819,11 @@ function FanqieLite:open_chapter(book_id, index)
     local chapter = book.chapters[index]
     local cached, cache_err = self.storage:cached_chapter(book.id, chapter.id)
     if cached then
-        local ready, position_or_err = self:prepare_chapter_open(book, index, cached)
+        local ready, position_or_err, pending_consumption =
+            self:prepare_chapter_open(book, index, cached)
         if not ready then self:info(position_or_err); return end
-        self:open_file(cached, position_or_err)
+        self:open_prepared_chapter(
+            book, index, cached, position_or_err, pending_consumption)
         return
     end
     local loading_label = "正在读取第 " .. tostring(index) .. " 章……"
@@ -828,11 +847,13 @@ function FanqieLite:open_chapter(book_id, index)
             raise_user_error(user_error_detail("保存章节失败：", write_err)
                 .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
         end
-        local ready, position_or_err = self:prepare_chapter_open(book, index, path)
+        local ready, position_or_err, pending_consumption =
+            self:prepare_chapter_open(book, index, path)
         if not ready then raise_user_error(position_or_err) end
         UIManager:nextTick(function()
-            self:open_file(path, position_or_err)
-            if prune_warning then
+            local opened = self:open_prepared_chapter(
+                book, index, path, position_or_err, pending_consumption)
+            if opened and prune_warning then
                 UIManager:nextTick(function() self:show_cache_prune_warning(prune_warning) end)
             end
         end)

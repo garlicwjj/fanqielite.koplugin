@@ -325,6 +325,13 @@ local reloaded_import = assert(Library.find(reloaded, imported.id))
 equal(reloaded_import.directory_updated_at, 1000, "directory refresh time survives reload")
 equal(reloaded_import.imported_progress.position, 0.4, "reload preserves imported position")
 
+local inspected_position, inspection_pending =
+    Library.inspect_imported_position(reloaded_import, 2, false)
+equal(inspected_position, 0.4, "inspection returns the imported position")
+equal(inspection_pending, true, "inspection identifies a pending imported position")
+equal(reloaded_import.imported_progress.position, 0.4,
+    "inspection consumed imported position before the reader opened")
+
 local wrong_position, wrong_consumed = Library.take_imported_position(reloaded_import, 1, false)
 equal(wrong_position, nil, "wrong chapter does not apply imported position")
 equal(wrong_consumed, false, "wrong chapter does not consume imported position")
