@@ -17,6 +17,16 @@ local DocSettings = {
     end,
 }
 
+local file_open_mode = "throw"
+local file_open_calls = 0
+local FileManager = {
+    openFile = function()
+        file_open_calls = file_open_calls + 1
+        if file_open_mode == "throw" then error(unsafe_error()) end
+        return true
+    end,
+}
+
 local take_calls, touch_calls = 0, 0
 local Library = {
     take_imported_position = function(_, _, has_local_position)
@@ -42,7 +52,7 @@ local stubs = {
     dispatcher = {},
     docsettings = DocSettings,
     ["ui/event"] = {},
-    ["apps/filemanager/filemanager"] = {},
+    ["apps/filemanager/filemanager"] = FileManager,
     ["ui/widget/infomessage"] = {},
     ["ui/widget/inputdialog"] = {},
     logger = {},
@@ -70,8 +80,10 @@ end
 
 local FanqieLite = assert(loadfile("main.lua"))()
 local save_calls = 0
+local infos = {}
 local plugin = setmetatable({
     library = { books = {} },
+    info = function(_, message) infos[#infos + 1] = message end,
     save_state = function()
         save_calls = save_calls + 1
         return true
@@ -101,5 +113,26 @@ local normal_ready = assert(plugin:prepare_chapter_open(book, 1, "/safe/cache.xh
 assert(normal_ready == true, "normal sidecar inspection did not prepare the chapter")
 assert(take_calls == 1 and touch_calls == 1 and save_calls == 1,
     "normal chapter preparation lifecycle changed")
+
+local open_contained, opened = pcall(function()
+    return plugin:open_file("/safe/cache.xhtml")
+end)
+assert(open_contained, "chapter file open exception escaped the plugin boundary")
+assert(opened == nil, "failed chapter file open reported success")
+local open_err = infos[#infos]
+assert(type(open_err) == "string" and open_err:find("章节文件", 1, true),
+    "chapter file open failure did not identify the failed operation")
+assert(open_err:find("书架和缓存没有删除", 1, true),
+    "chapter file open failure did not explain retained data")
+assert(open_err:find("继续阅读位置可能已更新", 1, true),
+    "chapter file open failure hid the possible progress change")
+assert(open_err:find("重试", 1, true),
+    "chapter file open failure did not provide a next action")
+assert(not open_err:find(canary, 1, true), "chapter file open error leaked raw content")
+assert(tostring_calls == 0, "chapter file open error invoked __tostring")
+
+file_open_mode = "success"
+assert(plugin:open_file("/safe/cache.xhtml"), "normal chapter file open reported failure")
+assert(file_open_calls == 2, "chapter file open call count changed")
 
 print("chapter open flow tests passed")

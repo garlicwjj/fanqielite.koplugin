@@ -764,7 +764,15 @@ function FanqieLite:open_file(path, imported_position)
             reader_ui:handleEvent(Event:new("GotoPercent", imported_position * 100))
         end
     end
-    FileManager.openFile(self.ui, path, nil, nil, nil, after_open_callback)
+    local open_call = pcall(
+        FileManager.openFile, self.ui, path, nil, nil, nil, after_open_callback)
+    if not open_call then
+        self:info("无法打开章节文件，已停止进入阅读器。\n\n"
+            .. "本地书架和缓存没有删除；继续阅读位置可能已更新到本章。"
+            .. "请返回书籍页重试；若持续出现，请重启 KOReader。")
+        return nil
+    end
+    return true
 end
 
 function FanqieLite:prepare_chapter_open(book, index, path)
