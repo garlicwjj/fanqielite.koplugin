@@ -768,8 +768,15 @@ function FanqieLite:open_file(path, imported_position)
 end
 
 function FanqieLite:prepare_chapter_open(book, index, path)
+    local sidecar_call, has_local_position = pcall(
+        DocSettings.hasSidecarFile, DocSettings, path)
+    if not sidecar_call then
+        return nil, "无法确认 KOReader 本机阅读位置，已停止打开章节。"
+            .. "本地书架、阅读进度和缓存没有改变。"
+            .. "请返回书籍页重试；若持续出现，请重启 KOReader。"
+    end
     local imported_position = Library.take_imported_position(
-        book, index, DocSettings:hasSidecarFile(path))
+        book, index, has_local_position)
     Library.touch(self.library, book.id, index)
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
