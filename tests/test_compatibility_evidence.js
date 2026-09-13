@@ -22,7 +22,7 @@ function record(overrides = {}) {
             kindle_model: "PW3",
             firmware: "5.16.2.1.1",
             koreader: "2026.03",
-            plugin_commit: "43864ae",
+            plugin_commit: "a".repeat(40),
         },
         book: { id: "7633875868615461950", chapter_count: 88, serialization: "ongoing", category: "male" },
         chapter: { position: "first", ordinal: 1, id: "7633875868615461951" },
@@ -45,6 +45,10 @@ function record(overrides = {}) {
 validateRecord(record());
 
 assert.throws(() => validateRecord({ ...record(), version: 1 }), /版本不受支持/);
+assert.throws(() => validateRecord({
+    ...record(),
+    environment: { ...record().environment, plugin_commit: "43864ae" },
+}), /plugin_commit.*格式无效/);
 
 const maximumLengthIds = record();
 maximumLengthIds.book.id = "7".repeat(64);
@@ -279,7 +283,7 @@ nonActionableReject.find((value) => value.observation.response === "login_wall")
 assert(evaluateMatrix(nonActionableReject).errors.some((error) => error.includes("安全拒绝")));
 
 const mixedCommits = completeMatrix();
-mixedCommits[0].environment.plugin_commit = "abcdef0";
+mixedCommits[0].environment.plugin_commit = "b".repeat(40);
 assert(evaluateMatrix(mixedCommits).errors.some((error) => error.includes("同一个插件候选提交")));
 
 const missingFemale = completeMatrix();
