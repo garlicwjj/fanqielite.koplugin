@@ -38,6 +38,7 @@ fanqielite.koplugin/LICENSE
 fanqielite.koplugin/README.md
 fanqielite.koplugin/_meta.lua
 fanqielite.koplugin/docs/
+fanqielite.koplugin/docs/BROWSER_EXPORT_PILOT_2026-09-08.md
 fanqielite.koplugin/docs/COMPATIBILITY_PILOT_2026-09-03.md
 fanqielite.koplugin/docs/EPHEMERAL_HTTP_AUDIT.md
 fanqielite.koplugin/docs/QUALITY_PLAN.md
@@ -81,6 +82,7 @@ test "$(sed -n 's/^commit=//p' "$plugin_root/BUILD-INFO.txt")" = "$(git -C "$rep
 grep -Eq '^worktree=(clean|dirty)$' "$plugin_root/BUILD-INFO.txt"
 grep -Fqx 'status=candidate-test-not-release' "$plugin_root/BUILD-INFO.txt"
 test -s "$plugin_root/docs/bookshelf-format.md"
+test -s "$plugin_root/docs/BROWSER_EXPORT_PILOT_2026-09-08.md"
 test -s "$plugin_root/docs/COMPATIBILITY_PILOT_2026-09-03.md"
 test -s "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 test -s "$plugin_root/docs/compatibility-matrix.md"
@@ -107,6 +109,11 @@ grep -Fq '首次添加书籍必须联网' "$plugin_root/INSTALL.md"
 grep -Fq '飞行模式已关闭且 Wi-Fi 已连接' "$plugin_root/INSTALL.md"
 grep -Fq '继续阅读（第 1 章）' "$plugin_root/INSTALL.md"
 grep -Fq '不能把本次操作计为“5 分钟内开始阅读”通过' "$plugin_root/INSTALL.md"
+grep -Fq '专用测试账号的两本未读书' "$plugin_root/README.md"
+grep -Fq '打开 Chrome 开发者工具' "$plugin_root/docs/bookshelf-format.md"
+grep -Fq '不要粘贴 Cookie、Token、手机号或请求头' "$plugin_root/docs/bookshelf-format.md"
+grep -Fq '“设置与数据” → “从文件导入书架”' "$plugin_root/docs/bookshelf-format.md"
+grep -Fq '不会覆盖已有本地书架' "$plugin_root/docs/bookshelf-format.md"
 grep -Fq 'aid=2503' "$plugin_root/docs/QR_THREAT_MODEL.md"
 grep -Fq 'appName=muye' "$plugin_root/docs/QR_THREAT_MODEL.md"
 grep -Fq '/passport/web/get_qrcode/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
