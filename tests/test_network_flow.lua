@@ -253,6 +253,41 @@ plugin.library = { books = {{
     chapters = {{ id = "10000000001", title = "第一章" }},
 }} }
 plugin.storage = { cached_chapter = function() return nil end }
+
+local unsafe_cache_network_calls = 0
+plugin.storage.cached_chapter = function()
+    return nil, "缓存目录超出插件安全范围，已拒绝操作", false
+end
+NetworkTask.get = function()
+    unsafe_cache_network_calls = unsafe_cache_network_calls + 1
+    return nil, "must not fetch"
+end
+plugin:open_chapter("1234567890", 1)
+local unsafe_cache_failure = infos[#infos]
+assert(unsafe_cache_network_calls == 0,
+    "unsafe cache boundary started a network recovery request")
+assert(unsafe_cache_failure:find("无法安全检查本地缓存", 1, true),
+    "unsafe cache boundary did not identify the stopped operation")
+assert(unsafe_cache_failure:find("没有改变", 1, true),
+    "unsafe cache boundary did not explain local data safety")
+assert(unsafe_cache_failure:find("重启 KOReader", 1, true),
+    "unsafe cache boundary did not provide a recovery action")
+
+local recoverable_loading_label
+plugin.storage.cached_chapter = function()
+    return nil, "章节缓存不完整", true
+end
+NetworkTask.get = function(_, _, label)
+    recoverable_loading_label = label
+    return nil, "联网恢复失败；本地数据没有改变。"
+end
+plugin:open_chapter("1234567890", 1)
+assert(recoverable_loading_label
+        and recoverable_loading_label:find("缓存损坏", 1, true),
+    "recoverable damaged cache did not start the safe network rebuild path")
+
+plugin.storage.cached_chapter = function() return nil end
+NetworkTask.get = function() return "<html>changed chapter</html>" end
 plugin:open_chapter("1234567890", 1)
 local chapter_parse_failure = infos[#infos]
 assert(chapter_parse_failure:find("解析章节失败", 1, true),
