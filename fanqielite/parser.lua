@@ -233,6 +233,10 @@ local function array_count(value, label)
 end
 
 function Parser.directory_from_payload(payload)
+    if type(payload) == "table" and payload.code ~= nil
+            and payload.code ~= 0 and payload.code ~= "0" then
+        return nil, "目录接口返回失败状态，已停止更新；本地目录未改变"
+    end
     local data = type(payload) == "table" and payload.data or nil
     if type(data) ~= "table" then return nil, "目录接口没有返回数据" end
     local output, seen = {}, {}

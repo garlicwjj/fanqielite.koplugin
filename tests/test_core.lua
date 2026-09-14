@@ -67,6 +67,40 @@ local chapters = assert(Parser.directory_from_payload({ data = {
 equal(#chapters, 1, "chapter count")
 equal(chapters[1].title, "第一章", "chapter title")
 
+local string_status_chapters = assert(Parser.directory_from_payload({ code = "0", data = {
+    chapterList = { { itemId = "10000000002", title = "第二章" } },
+} }))
+equal(#string_status_chapters, 1, "string zero directory status compatibility")
+
+local directory_status_canary = "FANQIELITE_DIRECTORY_STATUS_CANARY_9d2a"
+local failed_directory, failed_directory_err = Parser.directory_from_payload({
+    code = -1,
+    message = directory_status_canary,
+    data = { chapterList = { { itemId = "10000000003", title = "残留章节" } } },
+})
+equal(failed_directory, nil, "failed directory response with residual data was accepted")
+assert(failed_directory_err:find("目录接口返回失败状态", 1, true),
+    "failed directory response did not identify the status boundary")
+assert(failed_directory_err:find("本地目录未改变", 1, true),
+    "failed directory response did not explain local data safety")
+assert(not failed_directory_err:find(directory_status_canary, 1, true),
+    "failed directory response exposed the server message")
+
+local directory_status_tostring_calls = 0
+local unsafe_directory_status = setmetatable({}, { __tostring = function()
+    directory_status_tostring_calls = directory_status_tostring_calls + 1
+    return directory_status_canary
+end })
+local unsafe_status_directory, unsafe_status_directory_err = Parser.directory_from_payload({
+    code = unsafe_directory_status,
+    data = { chapterList = { { itemId = "10000000004", title = "对象状态" } } },
+})
+equal(unsafe_status_directory, nil, "object directory status was accepted")
+equal(directory_status_tostring_calls, 0, "directory status object invoked __tostring")
+assert(type(unsafe_status_directory_err) == "string"
+        and not unsafe_status_directory_err:find(directory_status_canary, 1, true),
+    "object directory status exposed the canary")
+
 local malformed_directory, malformed_directory_err = Parser.directory_from_payload({ data = {
     chapterList = { { itemId = "7", title = "非法章节" }, { itemId = "../escape" } },
 } })
