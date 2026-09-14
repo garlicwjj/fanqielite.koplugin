@@ -90,9 +90,9 @@ local plugin = setmetatable({
 
 plugin:show_home()
 assert(shown and shown.title == "我的本地书架", "home did not open the local bookshelf")
-assert(shown.item_table[1].text == "扫码导入我的番茄书架（实验性）",
+assert(shown.item_table[1].text == "扫码导入我的番茄书架（尚未开放）",
     "QR import is not the first onboarding entry")
-assert(shown.item_table[2].text == "搜索或添加一本书",
+assert(shown.item_table[2].text == "搜索或添加一本书（推荐）",
     "search/add is not the second onboarding entry")
 assert(shown.item_table[3].text == "从文件导入书架",
     "file import is not the third onboarding entry")
@@ -172,9 +172,9 @@ assert(shown.item_table[2].text == "排序：书名", "sort control did not foll
 assert(shown.item_table[3].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
 shown.item_table[3].callback()
 assert(selected_id == unread_id, "book row no longer opens its details")
-assert(shown.item_table[5].text == "搜索或添加一本书", "visible add action missing below books")
+assert(shown.item_table[5].text == "搜索或添加一本书（推荐）", "visible add action missing below books")
 assert(shown.item_table[6].text == "从文件导入书架", "visible file import missing below books")
-assert(shown.item_table[7].text == "扫码导入我的番茄书架（实验性）",
+assert(shown.item_table[7].text == "扫码导入我的番茄书架（尚未开放）",
     "visible QR import missing below books")
 
 plugin.library = { version = 1, sort = "recent", books = {{

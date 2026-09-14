@@ -78,8 +78,8 @@ local plugin = setmetatable({
 
 plugin:show_book(book_id)
 assert(shown and shown.title == "详情页测试书\n测试作者", "book details did not open")
-assert(shown.item_table[1].text == "继续阅读（第 2 章）",
-    "book details do not lead with the primary reading action")
+assert(shown.item_table[1].text == "开始阅读（第 2 章）",
+    "unread book details do not lead with the start-reading action")
 assert(shown.item_table[2].text:find("本地状态：目录 3 章", 1, true),
     "local status did not immediately follow the primary action")
 assert(shown.item_table[3].text == "章节目录", "chapter actions changed order")
@@ -88,6 +88,18 @@ assert(shown.item_table[4].text == "上一章" and shown.item_table[5].text == "
 shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 2,
     "book primary action did not open the current chapter")
+
+book.last_opened_at = 100
+plugin:show_book(book_id)
+assert(shown.item_table[1].text == "继续阅读（第 2 章）",
+    "started book details do not lead with the continue-reading action")
+book.last_opened_at = 0
+
+book.imported_progress = { chapter_id = book.chapters[2].id, position = 0.5 }
+plugin:show_book(book_id)
+assert(shown.item_table[1].text == "继续阅读（第 2 章）",
+    "imported reading progress was presented as a fresh start")
+book.imported_progress = nil
 
 local function find_item(text)
     for _, item in ipairs(shown.item_table or {}) do

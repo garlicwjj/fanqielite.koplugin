@@ -39,6 +39,12 @@ local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录�
     .. "若持续出现，请检查插件更新。"
 local user_error_messages = setmetatable({}, { __mode = "k" })
 
+local function book_has_progress(book)
+    return type(book) == "table"
+        and ((tonumber(book.last_opened_at) or 0) > 0
+            or type(book.imported_progress) == "table")
+end
+
 local function raise_user_error(message)
     if type(message) ~= "string" or message == "" then
         message = "操作无法安全完成，请返回本地书架后重试。"
@@ -333,7 +339,9 @@ function FanqieLite:load_book(input)
     self.active_book_id = record.id
     local saved, state_err = self:save_state()
     if not saved then raise_user_error(state_err) end
-    self:info("已加入《" .. record.title .. "》\n共 " .. tostring(#record.chapters) .. " 章", 3)
+    local reading_action = book_has_progress(record) and "继续阅读" or "开始阅读"
+    self:info("已加入《" .. record.title .. "》\n共 " .. tostring(#record.chapters)
+        .. " 章\n\n正在打开书籍页，请选择“" .. reading_action .. "”。", 4)
     UIManager:nextTick(function() self:show_book(record.id) end)
 end
 
@@ -351,8 +359,8 @@ function FanqieLite:prompt_book()
     local dialog
     dialog = InputDialog:new{
         title = _("搜索或添加一本书"),
-        description = _("输入书名或作者名搜索；也可以直接粘贴番茄官网书籍链接。"),
-        input_hint = _("书名、作者名或番茄官网链接"),
+        description = _("推荐粘贴番茄官网书籍链接；也可输入书名或作者名搜索（官网可能要求验证）。"),
+        input_hint = _("官网链接、书名或作者名"),
         buttons = {{
             { text = _("取消"), callback = function() UIManager:close(dialog) end },
             { text = _("搜索/添加"), is_enter_default = true, callback = function()
@@ -573,10 +581,10 @@ function FanqieLite:show_home()
     local sort_names = { recent = "最近阅读", title = "书名", added = "最近添加" }
     local onboarding = {
         {
-            text = _("扫码导入我的番茄书架（实验性）"),
+            text = _("扫码导入我的番茄书架（尚未开放）"),
             callback = function() self:show_qr_import_status() end,
         },
-        { text = _("搜索或添加一本书"), callback = function() self:prompt_book() end },
+        { text = _("搜索或添加一本书（推荐）"), callback = function() self:prompt_book() end },
         {
             text = _("从文件导入书架"),
             callback = function() self:choose_import_file() end,
@@ -587,9 +595,7 @@ function FanqieLite:show_home()
         local recent = Library.sorted({ sort = "recent", books = self.library.books })[1]
         if recent then
             if #recent.chapters > 0 then
-                local has_progress = (tonumber(recent.last_opened_at) or 0) > 0
-                    or type(recent.imported_progress) == "table"
-                local action = has_progress and "继续阅读" or "开始阅读"
+                local action = book_has_progress(recent) and "继续阅读" or "开始阅读"
                 items[#items + 1] = {
                     text = action .. "：《" .. recent.title .. "》（第 "
                         .. tostring(recent.current_index) .. " 章）",
@@ -644,7 +650,8 @@ function FanqieLite:show_book(book_id)
     local items = {}
     if #book.chapters > 0 then
         items[#items + 1] = {
-            text = "继续阅读（第 " .. tostring(book.current_index) .. " 章）",
+            text = (book_has_progress(book) and "继续阅读" or "开始阅读")
+                .. "（第 " .. tostring(book.current_index) .. " 章）",
             callback = function() self:open_chapter(book.id, book.current_index) end,
         }
     else
