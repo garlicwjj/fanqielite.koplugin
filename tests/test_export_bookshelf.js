@@ -46,6 +46,19 @@ assert.strictEqual(output.books[0].current_chapter_id, "10000000002");
 assert.strictEqual(output.books[0].current_chapter_title, "第二章");
 assert.strictEqual(Object.prototype.hasOwnProperty.call(output.books[0], "cookie"), false);
 
+const outputWithoutDiscoveredProgress = exporter.buildExport(
+    shelf, detail, undefined, "2026-08-16T12:00:00Z");
+assert.strictEqual(outputWithoutDiscoveredProgress.books.length, 1);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(
+    outputWithoutDiscoveredProgress.books[0], "current_chapter_id"), false,
+    "an undiscovered optional progress request must remain distinguishable from a failed request");
+assert.throws(() => exporter.buildExport(
+    shelf, detail, { code: 0, data: {} }), /阅读进度返回未知结构/,
+    "malformed successful progress response must not become a successful incomplete export");
+assert.throws(() => exporter.buildExport(
+    shelf, detail, null), /读取阅读进度失败/,
+    "null discovered progress response must not be mistaken for an undiscovered request");
+
 const privateOutput = exporter.buildExport({
     code: 0,
     cookie: credentialCanary,
@@ -112,6 +125,11 @@ assert.throws(() => exporter.buildExport({ code: -1, message: credentialCanary }
     assert.strictEqual(error.message.includes(credentialCanary), false);
     return /读取官方书架失败/.test(error.message);
 });
+assert.throws(() => exporter.buildExport(
+    shelf, detail, { code: -1, message: credentialCanary }), (error) => {
+    assert.strictEqual(error.message.includes(credentialCanary), false);
+    return /读取阅读进度失败/.test(error.message);
+}, "failed discovered progress response must not become a successful incomplete export");
 assert.throws(() => exporter.buildExport({ code: 0, data: { book_shelf_info: [] } }, detail, progress), /没有可导出/);
 
 function mockResponse(text, options = {}) {
@@ -231,6 +249,7 @@ async function rejectedWithoutCanary(promise, pattern) {
     let downloadedBlob;
     let downloadName;
     let successAlert = "";
+    let progressResponse = progress;
     try {
         global.location = { origin: "https://fanqienovel.com", pathname: "/bookshelf" };
         global.performance = { getEntriesByType: () => [
@@ -242,7 +261,9 @@ async function rejectedWithoutCanary(promise, pattern) {
             requests.push({ url, options });
             if (url.includes("/bookshelf/info/")) return mockResponse(JSON.stringify(shelf));
             if (url.includes("/api/book/simple/info")) return mockResponse(JSON.stringify(detail));
-            if (url.includes("/api/reader/book/progress")) return mockResponse(JSON.stringify(progress));
+            if (url.includes("/api/reader/book/progress")) {
+                return mockResponse(JSON.stringify(progressResponse));
+            }
             throw new Error(credentialCanary);
         };
         global.document = {
@@ -274,6 +295,20 @@ async function rejectedWithoutCanary(promise, pattern) {
         assert.strictEqual(requests.every((request) => request.options.redirect === "error"), true);
         assert.strictEqual(requests.every((request) => request.options.signal.aborted), true);
         assert.match(successAlert, /已导出 1 本书/);
+
+        requests.length = 0;
+        downloadedBlob = undefined;
+        downloadName = undefined;
+        progressResponse = { code: -1, message: credentialCanary };
+        await rejectedWithoutCanary(exporter.run(), /读取阅读进度失败/);
+        assert.strictEqual(requests.length, 3,
+            "expired progress session did not stop at the discovered progress request");
+        assert.strictEqual(downloadedBlob, undefined,
+            "failed progress request created an incomplete download blob");
+        assert.strictEqual(downloadName, undefined,
+            "failed progress request clicked a download link");
+
+        progressResponse = progress;
         requests.length = 0;
         downloadedBlob = undefined;
         downloadName = undefined;
