@@ -65,8 +65,14 @@
         var shelf = Array.isArray(shelfData.book_shelf_info) ? shelfData.book_shelf_info : [];
         var details = Array.isArray(detailData.bookList) ? detailData.bookList
             : (Array.isArray(detailData.book_list) ? detailData.book_list : []);
-        var progress = progressPayload && progressPayload.code === 0 && Array.isArray(progressPayload.data)
-            ? progressPayload.data : [];
+        var progress = [];
+        if (progressPayload !== undefined) {
+            var progressData = responseData(progressPayload, "读取阅读进度");
+            if (!Array.isArray(progressData)) {
+                throw safeError("读取阅读进度返回未知结构，已停止导出");
+            }
+            progress = progressData;
+        }
         if (shelf.length > MAX_BOOKS) throw safeError("单次最多导出 500 本书");
 
         var detailById = {};
