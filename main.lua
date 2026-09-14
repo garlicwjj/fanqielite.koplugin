@@ -32,6 +32,11 @@ local FanqieLite = WidgetContainer:extend{
 }
 
 local BASE = "https://fanqienovel.com"
+local BOOK_PARSE_NEXT = "请稍后重试；若持续出现，请确认链接仍可在番茄官网打开并检查插件更新。"
+local DIRECTORY_PARSE_NEXT = "请稍后重试；若持续出现，请确认该书仍可在番茄官网打开并检查插件更新。"
+local SEARCH_PARSE_NEXT = "请改用番茄官网书籍链接；若持续出现，请检查插件更新。"
+local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录或解锁时请使用番茄官方客户端；"
+    .. "若持续出现，请检查插件更新。"
 local user_error_messages = setmetatable({}, { __mode = "k" })
 
 local function raise_user_error(message)
@@ -69,6 +74,24 @@ local function import_error_detail(detail)
         return "导入操作没有返回可安全显示的错误说明"
     end
     return detail
+end
+
+function FanqieLite:parser_failure_message(operation, detail, next_action)
+    if type(operation) ~= "string" or operation == "" then
+        operation = "解析官方内容失败"
+    end
+    if type(detail) ~= "string" or detail == "" then
+        detail = "官方响应未返回可安全显示的失败原因"
+    end
+    if type(next_action) ~= "string" or next_action == "" then
+        next_action = "请返回本地书架后重试；若持续出现，请检查插件更新。"
+    end
+    return operation .. "：" .. detail
+        .. "\n\n本地书架、阅读进度和缓存没有改变。" .. next_action
+end
+
+function FanqieLite:raise_parser_failure(operation, detail, next_action)
+    raise_user_error(self:parser_failure_message(operation, detail, next_action))
 end
 
 local function safe_import_directory(value)
@@ -278,20 +301,26 @@ function FanqieLite:fetch_book(book_id)
         BASE .. "/page/" .. book_id, nil, "正在读取书籍信息……")
     if not html then raise_user_error(user_error_detail("获取书籍页面失败：", page_err)) end
     local json_text, state_err = Parser.extract_initial_state(html)
-    if not json_text then raise_user_error(state_err) end
+    if not json_text then
+        self:raise_parser_failure("解析书籍页面失败", state_err, BOOK_PARSE_NEXT)
+    end
     local state, decode_err = Parser.decode_json(json_text)
-    if not state then raise_user_error(decode_err) end
+    if not state then
+        self:raise_parser_failure("解析书籍页面失败", decode_err, BOOK_PARSE_NEXT)
+    end
     local book, book_err = Parser.book_from_state(state, book_id)
-    if not book then raise_user_error(book_err) end
+    if not book then self:raise_parser_failure("解析书籍页面失败", book_err, BOOK_PARSE_NEXT) end
 
     local directory_text, directory_err = NetworkTask.get(
         BASE .. "/api/reader/directory/detail?bookId=" .. book_id,
         "application/json", "正在读取目录……")
     if not directory_text then raise_user_error(user_error_detail("获取目录失败：", directory_err)) end
     local payload, payload_err = Parser.decode_json(directory_text)
-    if not payload then raise_user_error(payload_err) end
+    if not payload then self:raise_parser_failure("解析目录失败", payload_err, DIRECTORY_PARSE_NEXT) end
     local chapters, chapters_err = Parser.directory_from_payload(payload)
-    if not chapters then raise_user_error(chapters_err) end
+    if not chapters then
+        self:raise_parser_failure("解析目录失败", chapters_err, DIRECTORY_PARSE_NEXT)
+    end
     return book, chapters
 end
 
@@ -360,9 +389,13 @@ function FanqieLite:search_books(url, query)
         url, "application/json", "正在番茄官网搜索“" .. query .. "”……")
     if not json_text then raise_user_error(user_error_detail("搜索未完成：", request_err)) end
     local payload, decode_err = Parser.decode_json(json_text)
-    if not payload then raise_user_error(decode_err) end
+    if not payload then
+        self:raise_parser_failure("解析搜索结果失败", decode_err, SEARCH_PARSE_NEXT)
+    end
     local results, results_err = Search.parse(payload)
-    if not results then raise_user_error(results_err) end
+    if not results then
+        self:raise_parser_failure("解析搜索结果失败", results_err, SEARCH_PARSE_NEXT)
+    end
     UIManager:nextTick(function() self:show_search_results(query, results) end)
 end
 
@@ -835,11 +868,17 @@ function FanqieLite:open_chapter(book_id, index)
             BASE .. "/reader/" .. chapter.id, nil, loading_label)
         if not html then raise_user_error(user_error_detail("读取章节失败：", fetch_err)) end
         local json_text, state_err = Parser.extract_initial_state(html)
-        if not json_text then raise_user_error(state_err) end
+        if not json_text then
+            self:raise_parser_failure("解析章节失败", state_err, CHAPTER_PARSE_NEXT)
+        end
         local state, decode_err = Parser.decode_json(json_text)
-        if not state then raise_user_error(decode_err) end
+        if not state then
+            self:raise_parser_failure("解析章节失败", decode_err, CHAPTER_PARSE_NEXT)
+        end
         local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
-        if not parsed then raise_user_error(chapter_err) end
+        if not parsed then
+            self:raise_parser_failure("解析章节失败", chapter_err, CHAPTER_PARSE_NEXT)
+        end
         parsed.title = chapter.title ~= "" and chapter.title or parsed.title
         local path, write_err, prune_warning = self.storage:write_chapter(
             book.id, chapter.id, Parser.to_xhtml(book, parsed))

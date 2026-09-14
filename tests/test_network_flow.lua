@@ -57,6 +57,13 @@ local Parser = {
 }
 local Export = {}
 local Import = {}
+local Library = {
+    find = function(library, book_id)
+        for _, book in ipairs(library.books or {}) do
+            if book.id == book_id then return book end
+        end
+    end,
+}
 
 local stubs = {
     ["ui/widget/confirmbox"] = {},
@@ -79,7 +86,7 @@ local stubs = {
     gettext = function(text) return text end,
     ["fanqielite.export"] = Export,
     ["fanqielite.import"] = Import,
-    ["fanqielite.library"] = {},
+    ["fanqielite.library"] = Library,
     ["fanqielite.networktask"] = NetworkTask,
     ["fanqielite.parser"] = Parser,
     ["fanqielite.persistence"] = {},
@@ -185,6 +192,77 @@ assert(not reset_failure:find(credential_canary, 1, true), "Trapper reset except
 assert(tostring_calls == 0, "Trapper reset exception invoked __tostring")
 assert(plugin.network_busy == false, "Trapper reset exception left the busy gate active")
 trapper_mode = "success"
+
+local parser_detail = plugin:parser_failure_message(
+    "解析目录失败", "目录结构无效", "请稍后重试；若持续出现，请检查插件更新。")
+assert(parser_detail:find("解析目录失败：目录结构无效", 1, true),
+    "parser failure did not identify the operation and reason")
+assert(parser_detail:find("本地书架、阅读进度和缓存没有改变", 1, true),
+    "parser failure did not explain local data safety")
+assert(parser_detail:find("请稍后重试", 1, true),
+    "parser failure did not provide the requested next action")
+
+local parser_detail_tostring_calls = 0
+local unsafe_parser_detail = setmetatable({}, { __tostring = function()
+    parser_detail_tostring_calls = parser_detail_tostring_calls + 1
+    return credential_canary
+end })
+local fixed_parser_detail = plugin:parser_failure_message(
+    "解析官方内容失败", unsafe_parser_detail, unsafe_parser_detail)
+assert(fixed_parser_detail:find("未返回可安全显示的失败原因", 1, true),
+    "unsafe parser reason did not use a fixed fallback")
+assert(fixed_parser_detail:find("请返回本地书架后重试", 1, true),
+    "unsafe parser next action did not use a fixed fallback")
+assert(not fixed_parser_detail:find(credential_canary, 1, true),
+    "unsafe parser failure exposed the canary")
+assert(parser_detail_tostring_calls == 0, "unsafe parser failure invoked __tostring")
+
+local original_network_get = NetworkTask.get
+local original_extract_initial_state = Parser.extract_initial_state
+NetworkTask.get = function() return "<html>changed</html>" end
+Parser.extract_initial_state = function() return nil, "页面缺少 INITIAL_STATE" end
+plugin:with_network(function() plugin:load_book("1234567890") end)
+local book_parse_failure = infos[#infos]
+assert(book_parse_failure:find("解析书籍页面失败", 1, true),
+    "book parsing call site did not identify the operation")
+assert(book_parse_failure:find("本地书架、阅读进度和缓存没有改变", 1, true),
+    "book parsing call site did not explain local data safety")
+assert(book_parse_failure:find("确认链接仍可在番茄官网打开", 1, true),
+    "book parsing call site did not provide an actionable next step")
+NetworkTask.get = original_network_get
+Parser.extract_initial_state = original_extract_initial_state
+
+local original_decode_json = Parser.decode_json
+NetworkTask.get = function() return "{}" end
+Parser.decode_json = function() return nil, "官方响应格式发生变化" end
+plugin:with_network(function()
+    plugin:search_books("https://fanqienovel.com/api/search", "测试")
+end)
+local search_parse_failure = infos[#infos]
+assert(search_parse_failure:find("解析搜索结果失败", 1, true),
+    "search parsing call site did not identify the operation")
+assert(search_parse_failure:find("改用番茄官网书籍链接", 1, true),
+    "search parsing call site did not provide its safe fallback")
+NetworkTask.get = original_network_get
+Parser.decode_json = original_decode_json
+
+NetworkTask.get = function() return "<html>changed chapter</html>" end
+Parser.extract_initial_state = function() return nil, "页面状态 JSON 不完整" end
+plugin.library = { books = {{
+    id = "1234567890",
+    chapters = {{ id = "10000000001", title = "第一章" }},
+}} }
+plugin.storage = { cached_chapter = function() return nil end }
+plugin:open_chapter("1234567890", 1)
+local chapter_parse_failure = infos[#infos]
+assert(chapter_parse_failure:find("解析章节失败", 1, true),
+    "chapter parsing call site did not identify the operation")
+assert(chapter_parse_failure:find("本地书架、阅读进度和缓存没有改变", 1, true),
+    "chapter parsing call site did not explain local data safety")
+assert(chapter_parse_failure:find("需要登录或解锁时请使用番茄官方客户端", 1, true),
+    "chapter parsing call site did not preserve the platform boundary")
+NetworkTask.get = original_network_get
+Parser.extract_initial_state = original_extract_initial_state
 
 local no_directory = plugin:book_local_status({ chapters = {} }, 0, 1000)
 assert(no_directory:find("尚未获取目录", 1, true), "missing directory state not explained")
