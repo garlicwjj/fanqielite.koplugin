@@ -121,6 +121,8 @@ grep -Fq '随后连接成功也不会偷偷继续旧操作' "$plugin_root/INSTAL
 grep -Fq '插件会说明本地数据未改变，并提供“重试 / 返回”' "$plugin_root/INSTALL.md"
 grep -Fq '不会显示一键重试' "$plugin_root/INSTALL.md"
 grep -Fq '不能把本次操作计为“5 分钟内开始阅读”通过' "$plugin_root/INSTALL.md"
+grep -Fq '最多接受单书 10,000 章和 1,000 卷' "$plugin_root/README.md"
+grep -Fq '插件最多接受单书 10,000 章和 1,000 卷' "$plugin_root/INSTALL.md"
 grep -Fq '专用测试账号的两本未读书' "$plugin_root/README.md"
 grep -Fq '打开 Chrome 开发者工具' "$plugin_root/docs/bookshelf-format.md"
 grep -Fq '不要粘贴 Cookie、Token、手机号或请求头' "$plugin_root/docs/bookshelf-format.md"

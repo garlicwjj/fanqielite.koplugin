@@ -363,6 +363,64 @@ NetworkTask.get = original_network_get
 Parser.extract_initial_state = original_extract_initial_state
 
 local original_decode_json = Parser.decode_json
+local original_book_from_state = Parser.book_from_state
+local original_directory_from_payload = Parser.directory_from_payload
+local original_library_upsert = Library.upsert
+local original_save_state = plugin.save_state
+local directory_decode_calls = 0
+local directory_upsert_calls = 0
+local directory_save_calls = 0
+local old_chapters = {{ id = "10000000001", title = "旧目录第一章" }}
+plugin.library = { books = {{
+    id = "1234567890",
+    title = "旧书名",
+    chapters = old_chapters,
+}} }
+NetworkTask.get = function() return "{}" end
+Parser.extract_initial_state = function() return "{}" end
+Parser.decode_json = function()
+    directory_decode_calls = directory_decode_calls + 1
+    if directory_decode_calls == 1 then return { page = "book" } end
+    return { data = { chapterList = {} } }
+end
+Parser.book_from_state = function()
+    return { id = "1234567890", title = "官网新书名", author = "作者" }
+end
+Parser.directory_from_payload = function()
+    return nil, "目录章节数量超过 10000 章安全上限，已停止更新"
+end
+Library.upsert = function()
+    directory_upsert_calls = directory_upsert_calls + 1
+    return nil, "must not update"
+end
+plugin.save_state = function()
+    directory_save_calls = directory_save_calls + 1
+    return true
+end
+plugin:with_network(function() plugin:refresh_book("1234567890") end)
+local directory_limit_failure = infos[#infos]
+assert(directory_limit_failure:find("解析目录失败", 1, true),
+    "directory limit did not identify the stopped operation")
+assert(directory_limit_failure:find("10000 章安全上限", 1, true),
+    "directory limit did not explain the fixed boundary")
+assert(directory_limit_failure:find("本地书架、阅读进度和缓存没有改变", 1, true),
+    "directory limit did not explain local data safety")
+assert(directory_limit_failure:find("稍后重试", 1, true),
+    "directory limit did not provide an actionable next step")
+assert(directory_upsert_calls == 0 and directory_save_calls == 0,
+    "oversized directory reached a local mutation boundary")
+assert(plugin.library.books[1].title == "旧书名"
+        and plugin.library.books[1].chapters == old_chapters
+        and #plugin.library.books[1].chapters == 1,
+    "oversized directory changed the existing local record")
+NetworkTask.get = original_network_get
+Parser.extract_initial_state = original_extract_initial_state
+Parser.decode_json = original_decode_json
+Parser.book_from_state = original_book_from_state
+Parser.directory_from_payload = original_directory_from_payload
+Library.upsert = original_library_upsert
+plugin.save_state = original_save_state
+
 NetworkTask.get = function() return "{}" end
 Parser.decode_json = function() return nil, "官方响应格式发生变化" end
 plugin:with_network(function()
