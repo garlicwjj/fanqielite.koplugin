@@ -154,6 +154,7 @@ plugin.library = { version = 1, sort = "title", books = {
         id = recent_id, title = "B 最近阅读", author = "作者乙", chapters = {
             { id = "7234567890123456701", title = "第一章" },
             { id = "7234567890123456702", title = "第二章" },
+            { id = "7234567890123456703", title = "第三章" },
         }, current_index = 2, last_opened_at = 900,
     },
 } }
@@ -168,13 +169,26 @@ assert(shown.item_table[1].text == "继续阅读：《B 最近阅读》（第 2 
 shown.item_table[1].callback()
 assert(opened_id == recent_id and opened_index == 2,
     "home primary action did not directly continue the recent chapter")
-assert(shown.item_table[2].text == "排序：书名", "sort control did not follow the primary action")
-assert(shown.item_table[3].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
+assert(shown.item_table[2].text == "下一章（第 3 章）",
+    "home did not expose one-tap next-chapter navigation")
+plugin.library.books[2].current_index = 1
+shown.item_table[2].callback()
+assert(opened_id == recent_id and opened_index == 3,
+    "home next-chapter action did not retain its rendered target")
+assert(shown.item_table[3].text == "上一章（第 1 章）",
+    "home did not expose one-tap previous-chapter navigation")
+plugin.library.books[2].current_index = 3
 shown.item_table[3].callback()
+assert(opened_id == recent_id and opened_index == 1,
+    "home previous-chapter action did not retain its rendered target")
+plugin.library.books[2].current_index = 2
+assert(shown.item_table[4].text == "排序：书名", "sort control did not follow reading actions")
+assert(shown.item_table[5].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
+shown.item_table[5].callback()
 assert(selected_id == unread_id, "book row no longer opens its details")
-assert(shown.item_table[5].text == "搜索或添加一本书（推荐）", "visible add action missing below books")
-assert(shown.item_table[6].text == "从文件导入书架", "visible file import missing below books")
-assert(shown.item_table[7].text == "扫码导入我的番茄书架（尚未开放）",
+assert(shown.item_table[7].text == "搜索或添加一本书（推荐）", "visible add action missing below books")
+assert(shown.item_table[8].text == "从文件导入书架", "visible file import missing below books")
+assert(shown.item_table[9].text == "扫码导入我的番茄书架（尚未开放）",
     "visible QR import missing below books")
 
 plugin.library = { version = 1, sort = "recent", books = {{
@@ -189,6 +203,33 @@ assert(shown.item_table[1].text == "开始阅读：《尚未开始》（第 1 �
 shown.item_table[1].callback()
 assert(opened_id == unread_id and opened_index == 1,
     "start-reading action did not open the first current chapter")
+
+local boundary_book = {
+    id = recent_id, title = "边界测试书", author = "", chapters = {
+        { id = "7234567890123456701", title = "第一章" },
+        { id = "7234567890123456702", title = "第二章" },
+        { id = "7234567890123456703", title = "第三章" },
+    }, current_index = 1, last_opened_at = 900,
+}
+plugin.library = { version = 1, sort = "recent", books = { boundary_book } }
+plugin:show_home()
+assert(shown.item_table[2].text == "下一章（第 2 章）",
+    "first chapter did not expose its valid next target")
+assert(shown.item_table[3].text == "排序：最近阅读",
+    "first chapter exposed an invalid previous action")
+shown.item_table[2].callback()
+assert(opened_id == recent_id and opened_index == 2,
+    "first chapter next action did not capture its target")
+
+boundary_book.current_index = 3
+plugin:show_home()
+assert(shown.item_table[2].text == "上一章（第 2 章）",
+    "last chapter did not expose its valid previous target")
+assert(shown.item_table[3].text == "排序：最近阅读",
+    "last chapter exposed an invalid next action")
+shown.item_table[2].callback()
+assert(opened_id == recent_id and opened_index == 2,
+    "last chapter previous action did not capture its target")
 
 plugin.library = { version = 1, sort = "recent", books = {{
     id = unread_id, title = "等待目录", author = "", chapters = {},

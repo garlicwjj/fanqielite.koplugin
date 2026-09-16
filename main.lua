@@ -595,14 +595,29 @@ function FanqieLite:show_home()
         local recent = Library.sorted({ sort = "recent", books = self.library.books })[1]
         if recent then
             if #recent.chapters > 0 then
+                local current_index = recent.current_index
                 local action = book_has_progress(recent) and "继续阅读" or "开始阅读"
                 items[#items + 1] = {
                     text = action .. "：《" .. recent.title .. "》（第 "
-                        .. tostring(recent.current_index) .. " 章）",
+                        .. tostring(current_index) .. " 章）",
                     callback = function()
-                        self:open_chapter(recent.id, recent.current_index)
+                        self:open_chapter(recent.id, current_index)
                     end,
                 }
+                if current_index < #recent.chapters then
+                    local next_index = current_index + 1
+                    items[#items + 1] = {
+                        text = "下一章（第 " .. tostring(next_index) .. " 章）",
+                        callback = function() self:open_chapter(recent.id, next_index) end,
+                    }
+                end
+                if current_index > 1 then
+                    local previous_index = current_index - 1
+                    items[#items + 1] = {
+                        text = "上一章（第 " .. tostring(previous_index) .. " 章）",
+                        callback = function() self:open_chapter(recent.id, previous_index) end,
+                    }
+                end
             else
                 items[#items + 1] = {
                     text = "打开：《" .. recent.title .. "》（待获取目录）",
@@ -649,10 +664,11 @@ function FanqieLite:show_book(book_id)
     if not saved then self:info(save_err); return end
     local items = {}
     if #book.chapters > 0 then
+        local current_index = book.current_index
         items[#items + 1] = {
             text = (book_has_progress(book) and "继续阅读" or "开始阅读")
-                .. "（第 " .. tostring(book.current_index) .. " 章）",
-            callback = function() self:open_chapter(book.id, book.current_index) end,
+                .. "（第 " .. tostring(current_index) .. " 章）",
+            callback = function() self:open_chapter(book.id, current_index) end,
         }
     else
         items[#items + 1] = {
@@ -671,10 +687,18 @@ function FanqieLite:show_book(book_id)
     if #book.chapters > 0 then
         items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
         if book.current_index > 1 then
-            items[#items + 1] = { text = _("上一章"), callback = function() self:open_chapter(book.id, book.current_index - 1) end }
+            local previous_index = book.current_index - 1
+            items[#items + 1] = {
+                text = "上一章（第 " .. tostring(previous_index) .. " 章）",
+                callback = function() self:open_chapter(book.id, previous_index) end,
+            }
         end
         if book.current_index < #book.chapters then
-            items[#items + 1] = { text = _("下一章"), callback = function() self:open_chapter(book.id, book.current_index + 1) end }
+            local next_index = book.current_index + 1
+            items[#items + 1] = {
+                text = "下一章（第 " .. tostring(next_index) .. " 章）",
+                callback = function() self:open_chapter(book.id, next_index) end,
+            }
         end
     end
     if #book.chapters > 0 then
