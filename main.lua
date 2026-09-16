@@ -37,6 +37,7 @@ local DIRECTORY_PARSE_NEXT = "请稍后重试；若持续出现，请确认该�
 local SEARCH_PARSE_NEXT = "请改用番茄官网书籍链接；若持续出现，请检查插件更新。"
 local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录或解锁时请使用番茄官方客户端；"
     .. "若持续出现，请检查插件更新。"
+local NETWORK_WAIT_TIMEOUT_SECONDS = 50
 local user_error_messages = setmetatable({}, { __mode = "k" })
 
 local function book_has_progress(book)
@@ -265,14 +266,59 @@ end
 function FanqieLite:with_network(callback)
     local function boundary_failure()
         self.network_busy = false
+        self.network_wait = nil
         self:info("无法启动安全的网络操作。为避免显示不受信任的错误内容，详细信息已隐藏。"
             .. "\n\n本地书架、阅读进度和缓存没有改变。"
             .. "请返回本地书架后重试；若持续出现，请重启 KOReader。")
     end
 
+    if self.network_busy then
+        self:info("已有网络操作正在进行，请在当前进度窗口点按取消，或等待操作完成。", 3)
+        return
+    end
+
+    if self.network_wait then
+        local pending = self.network_wait
+        self.network_wait = nil
+        if pending.timeout_callback then
+            pcall(UIManager.unschedule, UIManager, pending.timeout_callback)
+        end
+        self:info("已取消等待联网；本次操作没有开始。"
+            .. "\n\n即使 Wi-Fi 随后连接成功，刚才的操作也不会继续；"
+            .. "本地书架、阅读进度和缓存没有改变。", 4)
+        return
+    end
+
+    local request = {}
+    self.network_wait = request
+    local function clear_wait()
+        if self.network_wait ~= request then return false end
+        self.network_wait = nil
+        if request.timeout_callback then
+            pcall(UIManager.unschedule, UIManager, request.timeout_callback)
+        end
+        return true
+    end
+
+    request.timeout_callback = function()
+        if not clear_wait() then return end
+        self:info("等待 Wi-Fi 超时，本次操作已取消。"
+            .. "\n\n请确认网络可用后重新点按；本地书架、阅读进度和缓存没有改变。")
+    end
+    local scheduled_ok = pcall(
+        UIManager.scheduleIn, UIManager, NETWORK_WAIT_TIMEOUT_SECONDS, request.timeout_callback)
+    if not scheduled_ok then
+        clear_wait()
+        boundary_failure()
+        return
+    end
+
     local manager_ok = pcall(NetworkMgr.runWhenOnline, NetworkMgr, function()
+        -- KOReader may deliver this callback after its own Wi-Fi UI has gone away.
+        -- A cancelled or timed-out token must never revive the old operation.
+        if not clear_wait() then return end
         if self.network_busy then
-            self:info("已有网络操作正在进行，请先完成或点按取消。", 3)
+            self:info("已有网络操作正在进行，请在当前进度窗口点按取消，或等待操作完成。", 3)
             return
         end
         self.network_busy = true
@@ -299,7 +345,10 @@ function FanqieLite:with_network(callback)
             boundary_failure()
         end
     end)
-    if not manager_ok then boundary_failure() end
+    if not manager_ok then
+        clear_wait()
+        boundary_failure()
+    end
 end
 
 function FanqieLite:fetch_book(book_id)

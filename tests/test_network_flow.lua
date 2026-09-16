@@ -7,6 +7,11 @@ local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
 local tostring_calls = 0
 local network_manager_mode = "success"
 local trapper_mode = "success"
+local scheduler_mode = "success"
+local pending_online_callback
+local scheduled_callbacks = {}
+local scheduled_delays = {}
+local unscheduled_callbacks = {}
 
 local NetworkMgr = {
     runWhenOnline = function(_, callback)
@@ -16,6 +21,10 @@ local NetworkMgr = {
                 tostring_calls = tostring_calls + 1
                 return credential_canary
             end }))
+        end
+        if network_manager_mode == "pending" then
+            pending_online_callback = callback
+            return
         end
         callback()
     end,
@@ -65,6 +74,17 @@ local Library = {
     end,
 }
 
+local UIManager = {
+    scheduleIn = function(_, delay, callback)
+        if scheduler_mode == "throw" then error("scheduler unavailable") end
+        scheduled_callbacks[#scheduled_callbacks + 1] = callback
+        scheduled_delays[#scheduled_delays + 1] = delay
+    end,
+    unschedule = function(_, callback)
+        unscheduled_callbacks[callback] = true
+    end,
+}
+
 local stubs = {
     ["ui/widget/confirmbox"] = {},
     datastorage = { getDataDir = function() return "/mnt/us/koreader" end },
@@ -81,7 +101,7 @@ local stubs = {
     ["ui/network/manager"] = NetworkMgr,
     ["ui/widget/pathchooser"] = {},
     ["ui/trapper"] = Trapper,
-    ["ui/uimanager"] = {},
+    ["ui/uimanager"] = UIManager,
     ["ui/widget/container/widgetcontainer"] = WidgetContainer,
     gettext = function(text) return text end,
     ["fanqielite.export"] = Export,
@@ -192,6 +212,64 @@ assert(not reset_failure:find(credential_canary, 1, true), "Trapper reset except
 assert(tostring_calls == 0, "Trapper reset exception invoked __tostring")
 assert(plugin.network_busy == false, "Trapper reset exception left the busy gate active")
 trapper_mode = "success"
+
+network_manager_mode = "pending"
+pending_online_callback = nil
+local waiting_ran = false
+plugin:with_network(function() waiting_ran = true end)
+assert(plugin.network_wait ~= nil, "offline request did not enter the waiting state")
+assert(type(pending_online_callback) == "function", "offline request did not retain the delayed callback")
+assert(scheduled_delays[#scheduled_delays] == 50, "offline request used an unexpected wait timeout")
+local cancelled_timeout = plugin.network_wait.timeout_callback
+local stale_after_cancel = pending_online_callback
+local online_calls_before_repeat = online_calls
+local wrap_calls_before_repeat = wrap_calls
+plugin:with_network(function() error("repeated tap must not replace the first request") end)
+assert(plugin.network_wait == nil, "repeated tap did not cancel the pending request")
+assert(online_calls == online_calls_before_repeat,
+    "repeated tap scheduled another network-manager request")
+assert(infos[#infos]:find("已取消等待联网", 1, true),
+    "repeated tap did not explain that the pending request was cancelled")
+assert(unscheduled_callbacks[cancelled_timeout], "cancelled request left its timeout scheduled")
+stale_after_cancel()
+assert(not waiting_ran, "cancelled request ran after a late network callback")
+assert(wrap_calls == wrap_calls_before_repeat,
+    "cancelled request reached the task wrapper after a late callback")
+
+pending_online_callback = nil
+local timed_out_ran = false
+plugin:with_network(function() timed_out_ran = true end)
+local stale_after_timeout = pending_online_callback
+local timeout_callback = scheduled_callbacks[#scheduled_callbacks]
+assert(type(timeout_callback) == "function", "offline request did not install a timeout")
+timeout_callback()
+assert(plugin.network_wait == nil, "waiting state remained active after timeout")
+assert(infos[#infos]:find("等待 Wi%-Fi 超时"), "timeout did not provide a recovery message")
+local wrap_calls_before_stale_timeout = wrap_calls
+stale_after_timeout()
+assert(not timed_out_ran, "timed-out request ran after a late network callback")
+assert(wrap_calls == wrap_calls_before_stale_timeout,
+    "timed-out request reached the task wrapper after a late callback")
+
+network_manager_mode = "success"
+local recovered_after_wait = false
+plugin:with_network(function() recovered_after_wait = true end)
+assert(recovered_after_wait, "a new operation could not start after cancelling or timing out")
+assert(plugin.network_busy == false and plugin.network_wait == nil,
+    "network lifecycle did not fully recover after a new successful operation")
+
+scheduler_mode = "throw"
+local online_calls_before_scheduler_failure = online_calls
+local scheduler_contained = pcall(function()
+    plugin:with_network(function() error("must not run") end)
+end)
+assert(scheduler_contained, "timeout scheduler exception escaped the plugin boundary")
+assert(online_calls == online_calls_before_scheduler_failure,
+    "network manager ran without a recoverable wait timeout")
+assert(plugin.network_wait == nil, "scheduler failure left the waiting gate active")
+assert(infos[#infos]:find("无法启动安全的网络操作", 1, true),
+    "scheduler failure did not use the fixed recovery message")
+scheduler_mode = "success"
 
 local parser_detail = plugin:parser_failure_message(
     "解析目录失败", "目录结构无效", "请稍后重试；若持续出现，请检查插件更新。")
