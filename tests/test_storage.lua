@@ -322,6 +322,47 @@ assert(control_err:find("控制字符", 1, true), "control character error missi
 local original_open = io.open
 local original_rename = os.rename
 cached_mode = "file"
+names = { ".", "..", "10000000001.xhtml", "10000000002.xhtml" }
+io.open = function(path)
+    local contents = path:match("10000000002%.xhtml$")
+        and valid_xhtml:gsub("</body></html>$", "") or valid_xhtml
+    return {
+        read = function() return contents end,
+        close = function() return true end,
+    }
+end
+local verified_ids, damaged_ids = assert(
+    storage:verified_cached_chapter_ids("7633875868615461950"))
+assert(verified_ids["10000000001"] == true,
+    "verified cache inventory omitted a readable chapter")
+assert(verified_ids["10000000002"] == nil,
+    "verified cache inventory accepted a truncated chapter")
+assert(damaged_ids["10000000002"] == true,
+    "verified cache inventory did not identify a recoverable damaged chapter")
+assert(damaged_ids["10000000001"] == nil,
+    "verified cache inventory marked a readable chapter as damaged")
+
+names = { ".", ".." }
+for index = 1, Storage.MAX_CACHED_CHAPTERS + 1 do
+    names[#names + 1] = tostring(10000000000 + index) .. ".xhtml"
+end
+local inventory_open_calls = 0
+io.open = function()
+    inventory_open_calls = inventory_open_calls + 1
+    return {
+        read = function() return valid_xhtml end,
+        close = function() return true end,
+    }
+end
+local excessive_inventory, _, excessive_inventory_err =
+    storage:verified_cached_chapter_ids("7633875868615461950")
+assert(excessive_inventory == nil
+        and excessive_inventory_err:find("数量异常", 1, true),
+    "excessive cache inventory was not bounded")
+assert(inventory_open_calls == 0,
+    "excessive cache inventory read chapter contents before rejecting the count")
+
+names = { ".", "..", "10000000001.xhtml" }
 io.open = function()
     return {
         read = function() return valid_xhtml end,
@@ -337,11 +378,13 @@ io.open = function()
     linked_opened = true
     error("linked cache must not be opened")
 end
-local linked_chapter, linked_chapter_err = storage:cached_chapter(
+local linked_chapter, linked_chapter_err, linked_chapter_recoverable = storage:cached_chapter(
     "7633875868615461950", "10000000001")
 realpaths[cached_path] = nil
 assert(linked_chapter == nil and linked_chapter_err:find("安全范围", 1, true),
     "linked chapter cache was accepted for reading")
+assert(linked_chapter_recoverable ~= true,
+    "unsafe linked chapter cache was marked as network-recoverable")
 assert(not linked_opened, "linked chapter cache was opened before its real path was checked")
 
 io.open = function()
@@ -350,9 +393,12 @@ io.open = function()
         close = function() return true end,
     }
 end
-local corrupt_path, corrupt_err = storage:cached_chapter("7633875868615461950", "10000000001")
+local corrupt_path, corrupt_err, corrupt_recoverable =
+    storage:cached_chapter("7633875868615461950", "10000000001")
 assert(corrupt_path == nil, "corrupt cache returned as readable")
 assert(corrupt_err:find("不完整", 1, true), "corrupt cache reason missing")
+assert(corrupt_recoverable == true,
+    "safe-path corrupt cache was not marked for network recovery")
 
 io.open = function() error(unsafe_error()) end
 local open_failed, open_err = storage:cached_chapter("7633875868615461950", "10000000001")

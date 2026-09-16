@@ -7,6 +7,7 @@ local SafeTemporary = require("fanqielite.safetemporary")
 local Storage = {}
 Storage.__index = Storage
 Storage.MAX_CHAPTER_BYTES = 2 * 1024 * 1024
+Storage.MAX_CACHED_CHAPTERS = 12
 local XHTML_PREFIX = '<?xml version="1.0" encoding="utf-8"?>'
 
 function Storage.validate_chapter_contents(contents)
@@ -221,7 +222,7 @@ function Storage:write_chapter(book_id, item_id, contents)
     -- File contents were synced before rename. Directory sync is best-effort
     -- because failure is only observable after the atomic replacement.
     pcall(ffiUtil.fsyncDirectory, path)
-    local _, prune_err = self:prune(book_id, 12, path)
+    local _, prune_err = self:prune(book_id, Storage.MAX_CACHED_CHAPTERS, path)
     return path, nil, prune_err
 end
 
@@ -240,8 +241,42 @@ function Storage:cached_chapter(book_id, item_id)
     if not safe_path then return nil, file_err end
     path = safe_path
     local valid, validation_err = verify_chapter_file(path)
-    if not valid then return nil, validation_err end
+    if not valid then return nil, validation_err, true end
     return path
+end
+
+function Storage:verified_cached_chapter_ids(book_id)
+    local directory, directory_err = safe_book_directory(self, book_id, false)
+    if not directory then
+        if directory_err then return nil, nil, directory_err end
+        return {}, {}
+    end
+    local entries, entries_err = directory_entries(directory)
+    if not entries then return nil, nil, entries_err end
+    local readable, damaged = {}, {}
+    local candidate_count = 0
+    for _, name in ipairs(entries) do
+        if Identifier.valid(chapter_item_id(name)) then
+            candidate_count = candidate_count + 1
+            if candidate_count > Storage.MAX_CACHED_CHAPTERS then
+                return nil, nil, "缓存文件数量异常，已停止完整性检查"
+            end
+        end
+    end
+    for _, name in ipairs(entries) do
+        local item_id = chapter_item_id(name)
+        if Identifier.valid(item_id) then
+            local path, file_err = safe_regular_cache_file(
+                self, book_id, directory, name)
+            if file_err then return nil, nil, file_err end
+            if path then
+                local verified = verify_chapter_file(path)
+                if verified then readable[item_id] = true
+                else damaged[item_id] = true end
+            end
+        end
+    end
+    return readable, damaged
 end
 
 function Storage:prune(book_id, keep, protected_path)

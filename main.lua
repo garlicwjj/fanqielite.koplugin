@@ -784,15 +784,38 @@ end
 function FanqieLite:show_catalog(book_id)
     local book = Library.find(self.library, book_id)
     if not book or #book.chapters == 0 then self:info("目录为空，请联网刷新"); return end
+    local cached_ids, damaged_ids = self.storage:verified_cached_chapter_ids(book.id)
+    local cache_summary = "离线缓存状态不可读"
+    if type(cached_ids) == "table" and type(damaged_ids) == "table" then
+        local cached_count, damaged_count = 0, 0
+        for _, chapter in ipairs(book.chapters) do
+            if cached_ids[chapter.id] == true then cached_count = cached_count + 1 end
+            if damaged_ids[chapter.id] == true then damaged_count = damaged_count + 1 end
+        end
+        cache_summary = "离线可读 " .. tostring(cached_count) .. " 章"
+        if damaged_count > 0 then
+            cache_summary = cache_summary .. "；" .. tostring(damaged_count) .. " 章缓存需修复"
+        end
+    end
     local items = {}
     for index, chapter in ipairs(book.chapters) do
         local chapter_index = index
+        local status = index == book.current_index and "  [当前]" or ""
+        if type(cached_ids) == "table" and cached_ids[chapter.id] == true then
+            status = status .. "  [可离线]"
+        elseif type(damaged_ids) == "table" and damaged_ids[chapter.id] == true then
+            status = status .. "  [缓存需修复]"
+        end
         items[#items + 1] = {
-            text = chapter.title,
+            text = chapter.title .. status,
             callback = function() self:open_chapter(book.id, chapter_index) end,
         }
     end
-    local menu = Menu:new{ title = book.title, item_table = items, is_borderless = true }
+    local menu = Menu:new{
+        title = book.title .. "\n" .. cache_summary,
+        item_table = items,
+        is_borderless = true,
+    }
     UIManager:show(menu)
     if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(book.current_index)) end
 end
@@ -857,13 +880,20 @@ function FanqieLite:open_chapter(book_id, index)
         return
     end
     local chapter = book.chapters[index]
-    local cached, cache_err = self.storage:cached_chapter(book.id, chapter.id)
+    local cached, cache_err, recoverable_cache =
+        self.storage:cached_chapter(book.id, chapter.id)
     if cached then
         local ready, position_or_err, pending_consumption =
             self:prepare_chapter_open(book, index, cached)
         if not ready then self:info(position_or_err); return end
         self:open_prepared_chapter(
             book, index, cached, position_or_err, pending_consumption)
+        return
+    end
+    if cache_err and not recoverable_cache then
+        self:info("无法安全检查本地缓存，已停止打开章节。\n\n"
+            .. "本地书架、阅读进度和缓存没有改变。"
+            .. "请返回书籍页重试；若持续出现，请重启 KOReader。")
         return
     end
     local loading_label = "正在读取第 " .. tostring(index) .. " 章……"
