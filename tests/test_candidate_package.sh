@@ -112,6 +112,8 @@ grep -Fq '实际打开过后，该入口才会变为“继续阅读”' "$plugin
 grep -Fq '[可离线]' "$plugin_root/INSTALL.md"
 grep -Fq '[缓存需修复]' "$plugin_root/INSTALL.md"
 grep -Fq '不会因缓存路径或安全范围异常而先下载正文' "$plugin_root/INSTALL.md"
+grep -Fq '选择即可切换，不需要设置手势' "$plugin_root/INSTALL.md"
+grep -Fq '不可用方向不会显示' "$plugin_root/INSTALL.md"
 grep -Fq '不能把本次操作计为“5 分钟内开始阅读”通过' "$plugin_root/INSTALL.md"
 grep -Fq '专用测试账号的两本未读书' "$plugin_root/README.md"
 grep -Fq '打开 Chrome 开发者工具' "$plugin_root/docs/bookshelf-format.md"

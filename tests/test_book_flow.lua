@@ -83,8 +83,18 @@ assert(shown.item_table[1].text == "开始阅读（第 2 章）",
 assert(shown.item_table[2].text:find("本地状态：目录 3 章", 1, true),
     "local status did not immediately follow the primary action")
 assert(shown.item_table[3].text == "章节目录", "chapter actions changed order")
-assert(shown.item_table[4].text == "上一章" and shown.item_table[5].text == "下一章",
+assert(shown.item_table[4].text == "上一章（第 1 章）"
+        and shown.item_table[5].text == "下一章（第 3 章）",
     "middle chapter did not expose both valid adjacent actions")
+book.current_index = 3
+shown.item_table[4].callback()
+assert(opened_id == book_id and opened_index == 1,
+    "book previous action did not retain its rendered target chapter")
+book.current_index = 1
+shown.item_table[5].callback()
+assert(opened_id == book_id and opened_index == 3,
+    "book next action did not retain its rendered target chapter")
+book.current_index = 2
 shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 2,
     "book primary action did not open the current chapter")
@@ -111,6 +121,13 @@ local function has_item(text)
     return find_item(text) ~= nil
 end
 
+local function has_item_prefix(prefix)
+    for _, item in ipairs(shown.item_table or {}) do
+        if item.text:sub(1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
 local refresh_item = assert(find_item("刷新书籍信息与目录"),
     "book details did not expose the directory refresh action")
 local refreshed_id, reopened_id
@@ -124,13 +141,13 @@ plugin.show_book = FanqieLite.show_book
 
 book.current_index = 1
 plugin:show_book(book_id)
-assert(not has_item("上一章"), "first chapter exposed an unavailable previous action")
-assert(has_item("下一章"), "first chapter hid the available next action")
+assert(not has_item_prefix("上一章"), "first chapter exposed an unavailable previous action")
+assert(has_item("下一章（第 2 章）"), "first chapter hid the available next action")
 
 book.current_index = 3
 plugin:show_book(book_id)
-assert(has_item("上一章"), "last chapter hid the available previous action")
-assert(not has_item("下一章"), "last chapter exposed an unavailable next action")
+assert(has_item("上一章（第 2 章）"), "last chapter hid the available previous action")
+assert(not has_item_prefix("下一章"), "last chapter exposed an unavailable next action")
 
 book.chapters = {}
 book.current_index = 1
