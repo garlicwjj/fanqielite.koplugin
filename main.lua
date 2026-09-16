@@ -164,10 +164,97 @@ function FanqieLite:onDispatcherRegisterActions()
     Dispatcher:registerAction("fanqielite_open", {
         category = "none", event = "FanqieLiteOpen", title = _("番茄小说（实验版）"), general = true,
     })
+    Dispatcher:registerAction("fanqielite_previous_chapter", {
+        category = "none",
+        event = "FanqieLitePreviousChapter",
+        title = _("番茄小说：上一章"),
+        reader = true,
+    })
+    Dispatcher:registerAction("fanqielite_next_chapter", {
+        category = "none",
+        event = "FanqieLiteNextChapter",
+        title = _("番茄小说：下一章"),
+        reader = true,
+    })
 end
 
 function FanqieLite:onFanqieLiteOpen()
     self:show_home()
+end
+
+function FanqieLite:current_reader_chapter()
+    local file = self.ui and self.ui.document and self.ui.document.file
+    local root = self.storage and self.storage.root
+    if type(file) ~= "string" or file == ""
+            or type(root) ~= "string" or root == "" then
+        return nil, nil, "当前打开的不是 Fanqie Lite 章节。"
+            .. "请先从本地书架打开一本书，再使用章节快捷操作。"
+    end
+
+    root = root:gsub("/+$", "")
+    local prefix = root .. "/"
+    if file:sub(1, #prefix) ~= prefix then
+        return nil, nil, "当前打开的不是 Fanqie Lite 章节。"
+            .. "此快捷操作不会影响普通 EPUB、PDF 或其他插件的书籍。"
+    end
+    local relative = file:sub(#prefix + 1)
+    local book_id, chapter_id = relative:match("^(%d+)/(%d+)%.xhtml$")
+    if not book_id or not chapter_id then
+        return nil, nil, "当前打开的不是可识别的 Fanqie Lite 章节。"
+            .. "请返回本地书架后重新打开。"
+    end
+
+    local book = Library.find(self.library, book_id)
+    if not book then
+        return nil, nil, "当前章节所属书籍已不在本地书架中。"
+            .. "请重新添加该书后再使用章节快捷操作。"
+    end
+    local chapter_index
+    for index, chapter in ipairs(book.chapters or {}) do
+        if chapter.id == chapter_id then
+            chapter_index = index
+            break
+        end
+    end
+    if not chapter_index then
+        return nil, nil, "当前章节不在本地目录中。"
+            .. "请打开书籍页刷新目录后重试。"
+    end
+
+    local checked, cached = pcall(
+        self.storage.cached_chapter, self.storage, book_id, chapter_id)
+    if not checked or cached ~= file then
+        return nil, nil, "无法安全确认当前章节缓存，已停止切换。"
+            .. "本地书架、阅读进度和缓存没有改变。"
+            .. "请从书籍页重新打开本章；若持续出现，请重启 KOReader。"
+    end
+    return book, chapter_index
+end
+
+function FanqieLite:open_reader_adjacent_chapter(offset)
+    local book, current_index, context_err = self:current_reader_chapter()
+    if not book then
+        self:info(context_err)
+        return
+    end
+    local target_index = current_index + offset
+    if target_index < 1 then
+        self:info("已经是本书第一章；没有可打开的上一章。", 3)
+        return
+    end
+    if target_index > #book.chapters then
+        self:info("已经是本书最后一章；没有可打开的下一章。", 3)
+        return
+    end
+    self:open_chapter(book.id, target_index)
+end
+
+function FanqieLite:onFanqieLitePreviousChapter()
+    self:open_reader_adjacent_chapter(-1)
+end
+
+function FanqieLite:onFanqieLiteNextChapter()
+    self:open_reader_adjacent_chapter(1)
 end
 
 function FanqieLite:addToMainMenu(menu_items)
@@ -619,6 +706,17 @@ function FanqieLite:show_settings()
                     .. "两项操作独立确认，选择保留时以后重新添加同一本书仍可复用。\n\n"
                     .. "清理只删除插件安全目录内的数字 XHTML 缓存；KOReader .sdr 阅读位置和未知文件保留。"
                     .. "离线时只能打开仍有完整缓存的章节。")
+            end,
+        },
+        {
+            text = _("可选手势快捷操作"), callback = function()
+                self:info("不设置手势也能完整使用：本地书架、书籍页和章节目录"
+                    .. "始终保留可见的上一章、下一章入口。\n\n"
+                    .. "如需在正文中加速切章，可在 KOReader 的手势管理中，"
+                    .. "把任意手势绑定到“番茄小说：下一章”或“番茄小说：上一章”。\n\n"
+                    .. "快捷操作只会跟随当前打开的 Fanqie Lite 章节；"
+                    .. "普通 EPUB、PDF、其他插件书籍或无法安全确认的缓存不会跳转。"
+                    .. "目标章节未缓存时仍会显示正常的联网、取消和错误提示。")
             end,
         },
         {
