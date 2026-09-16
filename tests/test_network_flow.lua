@@ -2,7 +2,10 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local online_calls, wrap_calls, reset_calls = 0, 0, 0
 local infos = {}
+local shown_widgets = {}
 local network_error
+local network_error_kind
+local network_urls = {}
 local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
 local tostring_calls = 0
 local network_manager_mode = "success"
@@ -58,8 +61,14 @@ function WidgetContainer:extend(definition)
 end
 
 local NetworkTask = {
-    get = function() return nil, network_error end,
+    get = function(url)
+        network_urls[#network_urls + 1] = url
+        return nil, network_error, network_error_kind
+    end,
 }
+
+local ConfirmBox = {}
+function ConfirmBox:new(definition) return definition end
 
 local Parser = {
     book_id = function(value) return value end,
@@ -83,10 +92,16 @@ local UIManager = {
     unschedule = function(_, callback)
         unscheduled_callbacks[callback] = true
     end,
+    show = function(_, widget)
+        shown_widgets[#shown_widgets + 1] = widget
+    end,
+    nextTick = function(_, callback)
+        callback()
+    end,
 }
 
 local stubs = {
-    ["ui/widget/confirmbox"] = {},
+    ["ui/widget/confirmbox"] = ConfirmBox,
     datastorage = { getDataDir = function() return "/mnt/us/koreader" end },
     device = { home_dir = "/mnt/us" },
     dispatcher = {},
@@ -142,6 +157,8 @@ assert(infos[#infos]:find("已有网络操作", 1, true), "busy gate did not exp
 assert(plugin.network_busy == false, "network gate remained active after nested rejection")
 
 network_error = "操作已取消；本地书架、阅读进度和缓存没有改变。"
+network_error_kind = "cancelled"
+local shown_before_cancel = #shown_widgets
 plugin:with_network(function() plugin:load_book("1234567890") end)
 local cancelled = infos[#infos]
 assert(cancelled:find("操作未完成", 1, true), "cancellation did not use the safe failure heading")
@@ -149,11 +166,46 @@ assert(cancelled:find("操作已取消", 1, true), "cancellation reason was lost
 assert(cancelled:find("没有改变", 1, true), "cancellation safety detail was lost")
 assert(not cancelled:find("test_network_flow.lua", 1, true), "cancellation leaked a Lua file path")
 assert(plugin.network_busy == false, "network gate remained active after cancellation")
+assert(#shown_widgets == shown_before_cancel, "user cancellation incorrectly offered one-tap retry")
+
+network_error = "网络连接超时，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
+network_error_kind = "retryable"
+local shown_before_retryable = #shown_widgets
+local online_before_retry = online_calls
+local network_urls_before_retry = #network_urls
+plugin:with_network(function() plugin:load_book("1234567890") end)
+assert(#shown_widgets == shown_before_retryable + 1,
+    "retryable network failure did not show an in-place retry dialog")
+local retry_dialog = shown_widgets[#shown_widgets]
+assert(retry_dialog.ok_text == "重试" and retry_dialog.cancel_text == "返回",
+    "retry dialog actions were not explicit")
+assert(retry_dialog.text:find("操作未完成", 1, true), "retry dialog lost the failure heading")
+assert(retry_dialog.text:find("本地数据未改变", 1, true), "retry dialog lost the safety detail")
+assert(retry_dialog.text:find("是否重试同一操作", 1, true), "retry dialog did not explain the action")
+retry_dialog.ok_callback()
+assert(online_calls == online_before_retry + 2,
+    "retry action did not run the exact network operation again")
+assert(#network_urls == network_urls_before_retry + 2
+        and network_urls[network_urls_before_retry + 1]
+            == "https://fanqienovel.com/page/1234567890"
+        and network_urls[network_urls_before_retry + 2]
+            == "https://fanqienovel.com/page/1234567890",
+    "retry action changed the original official request target")
+
+network_error = "官方服务拒绝访问，内容可能需要登录或授权；本地数据未改变"
+network_error_kind = nil
+local shown_before_blocked = #shown_widgets
+plugin:with_network(function() plugin:load_book("1234567890") end)
+assert(#shown_widgets == shown_before_blocked,
+    "non-retryable platform boundary incorrectly offered one-tap retry")
+assert(infos[#infos]:find("需要登录或授权", 1, true),
+    "non-retryable platform boundary lost its actionable message")
 
 network_error = setmetatable({}, { __tostring = function()
     tostring_calls = tostring_calls + 1
     return credential_canary
 end })
+network_error_kind = nil
 plugin:with_network(function() plugin:load_book("1234567890") end)
 local unsafe_dependency = infos[#infos]
 assert(unsafe_dependency:find("可安全显示的错误说明", 1, true), "unsafe dependency error did not use fixed message")
@@ -173,7 +225,7 @@ assert(not failed:find(credential_canary, 1, true), "unexpected failure leaked r
 assert(tostring_calls == 0, "unexpected failure invoked __tostring")
 assert(not failed:find("test_network_flow.lua", 1, true), "failure leaked a Lua file path")
 assert(plugin.network_busy == false, "network gate remained active after failure")
-assert(reset_calls == 5, "Trapper was not reset after every completed wrapper")
+assert(reset_calls == 8, "Trapper was not reset after every completed wrapper")
 
 network_manager_mode = "throw"
 local manager_contained = pcall(function()

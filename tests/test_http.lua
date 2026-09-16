@@ -159,15 +159,17 @@ handler = function(request)
     assert(ok == nil and err == "response too large")
     return nil, err
 end
-local oversized, oversized_err = Http.get("https://fanqienovel.com/page/1234567890")
+local oversized, oversized_err, oversized_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(oversized == nil)
 contains(oversized_err, "1 MB", "size limit message")
 contains(oversized_err, "本地数据未改变", "safe failure message")
+assert(oversized_kind == nil, "oversized response must not offer immediate retry")
 
 handler = function() return nil, "timeout" end
-local timed_out, timeout_err = Http.get("https://fanqienovel.com/page/1234567890")
+local timed_out, timeout_err, timeout_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(timed_out == nil)
 contains(timeout_err, "网络连接超时", "timeout message")
+assert(timeout_kind == "retryable", "timeout should offer an explicit retry")
 
 local original_time = os.time
 local now = 100
@@ -188,9 +190,10 @@ handler = function(request)
     request.sink("short")
     return 1, 200, { ["content-length"] = "99" }, "OK"
 end
-local incomplete, incomplete_err = Http.get("https://fanqienovel.com/page/1234567890")
+local incomplete, incomplete_err, incomplete_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(incomplete == nil)
 contains(incomplete_err, "传输不完整", "incomplete response message")
+assert(incomplete_kind == "retryable", "incomplete transfer should offer an explicit retry")
 
 handler = function() return 1, 302, { location = "https://example.com" }, "Found" end
 local redirected, redirect_err = Http.get("https://fanqienovel.com/page/1234567890")
@@ -198,31 +201,35 @@ assert(redirected == nil)
 contains(redirect_err, "重定向", "redirect message")
 
 local status_cases = {
-    { 403, "需要登录或授权" },
-    { 404, "检查书籍链接" },
-    { 429, "稍后再试" },
-    { 503, "官方服务暂时异常" },
+    { 403, "需要登录或授权", nil },
+    { 404, "检查书籍链接", nil },
+    { 429, "稍后再试", nil },
+    { 503, "官方服务暂时异常", "retryable" },
+    { 999, "HTTP 未知", nil },
 }
 for _, case in ipairs(status_cases) do
     handler = function() return 1, case[1], {}, "Error" end
-    local result, err = Http.get("https://fanqienovel.com/page/1234567890")
+    local result, err, kind = Http.get("https://fanqienovel.com/page/1234567890")
     assert(result == nil)
     contains(err, case[2], "HTTP " .. tostring(case[1]) .. " message")
+    assert(kind == case[3], "HTTP " .. tostring(case[1]) .. " retry classification mismatch")
 end
 
 handler = function() error("certificate verify failed") end
-local crashed, certificate_err = Http.get("https://fanqienovel.com/page/1234567890")
+local crashed, certificate_err, certificate_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(crashed == nil)
 contains(certificate_err, "证书验证失败", "certificate message")
-assert(reset_calls == 18, "timeout must reset after every attempted request")
+assert(certificate_kind == nil, "certificate failure must require corrective action before retry")
+assert(reset_calls == 19, "timeout must reset after every attempted request")
 
 local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
 handler = function() return nil, "raw socket failure " .. credential_canary end
-local transport_failed, transport_err = Http.get("https://fanqienovel.com/page/1234567890")
+local transport_failed, transport_err, transport_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(transport_failed == nil)
 contains(transport_err, "无法连接番茄官方服务", "generic transport message")
 assert(not transport_err:find(credential_canary, 1, true), "raw transport error leaked")
-assert(reset_calls == 19, "timeout must reset after raw transport failure")
+assert(transport_kind == "retryable", "generic transport failure should offer an explicit retry")
+assert(reset_calls == 20, "timeout must reset after raw transport failure")
 
 local transport_tostring_calls = 0
 handler = function()
@@ -236,6 +243,6 @@ assert(object_failed == nil)
 contains(object_err, "无法连接番茄官方服务", "object transport message")
 assert(not object_err:find(credential_canary, 1, true), "transport error object leaked")
 assert(transport_tostring_calls == 0, "transport error object invoked __tostring")
-assert(reset_calls == 20, "timeout must reset after object transport failure")
+assert(reset_calls == 21, "timeout must reset after object transport failure")
 
 print("http tests passed")
