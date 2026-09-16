@@ -11,13 +11,15 @@ local TOTAL_TIMEOUT = 20
 
 local function request_error(value)
     if type(value) ~= "string" then
-        return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
+        return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变",
+            "retryable"
     end
     if value == "response too large" then
         return "官方响应超过 1 MB 安全限制，已停止读取；本地数据未改变"
     end
     if value == "timeout" or value == "sink timeout" or value == "wantread" then
-        return "网络连接超时，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
+        return "网络连接超时，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变",
+            "retryable"
     end
     local lower = value:lower()
     if lower:find("certificate", 1, true) or lower:find("verify", 1, true)
@@ -25,11 +27,16 @@ local function request_error(value)
             or lower:find("self signed", 1, true) or lower:find("ca locations", 1, true) then
         return "HTTPS 证书验证失败，请先让 Kindle 联网校准系统时间；本地数据未改变"
     end
-    return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变"
+    return "无法连接番茄官方服务，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变",
+        "retryable"
 end
 
 local function status_error(code)
     code = (type(code) == "string" or type(code) == "number") and tonumber(code) or nil
+    if code and (code ~= code or code == math.huge or code == -math.huge
+            or code % 1 ~= 0 or code < 100 or code > 599) then
+        code = nil
+    end
     if code == 301 or code == 302 or code == 303 or code == 307 or code == 308 then
         return "官方地址返回重定向（HTTP " .. tostring(code) .. "），已为安全起见停止请求；本地数据未改变"
     elseif code == 401 or code == 403 then
@@ -39,7 +46,8 @@ local function status_error(code)
     elseif code == 429 then
         return "请求过于频繁（HTTP 429），请稍后再试；本地数据未改变"
     elseif code and code >= 500 then
-        return "番茄官方服务暂时异常（HTTP " .. tostring(code) .. "），请稍后重试；本地数据未改变"
+        return "番茄官方服务暂时异常（HTTP " .. tostring(code) .. "），请稍后重试；本地数据未改变",
+            "retryable"
     end
     return "官方服务返回异常（HTTP " .. tostring(code or "未知") .. "）；本地数据未改变"
 end
@@ -105,7 +113,7 @@ function Http.get(url, accept)
     local content_length = (type(content_length_value) == "string" or type(content_length_value) == "number")
         and tonumber(content_length_value) or nil
     if content_length and content_length ~= size then
-        return nil, "官方响应传输不完整，已拒绝解析；本地数据未改变"
+        return nil, "官方响应传输不完整，已拒绝解析；本地数据未改变", "retryable"
     end
     return table.concat(chunks), headers
 end

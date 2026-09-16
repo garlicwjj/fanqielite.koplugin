@@ -46,12 +46,15 @@ local function book_has_progress(book)
             or type(book.imported_progress) == "table")
 end
 
-local function raise_user_error(message)
+local function raise_user_error(message, retryable)
     if type(message) ~= "string" or message == "" then
         message = "操作无法安全完成，请返回本地书架后重试。"
     end
     local token = {}
-    user_error_messages[token] = message
+    user_error_messages[token] = {
+        message = message,
+        retryable = retryable == true,
+    }
     error(token, 0)
 end
 
@@ -60,6 +63,12 @@ local function user_error_detail(prefix, detail)
         return prefix .. "操作没有返回可安全显示的错误说明，请返回本地书架确认状态后重试。"
     end
     return prefix .. detail
+end
+
+local function raise_network_error(prefix, detail, error_kind)
+    raise_user_error(
+        user_error_detail(prefix, detail),
+        error_kind == "retryable")
 end
 
 local function cache_error_detail(detail)
@@ -331,12 +340,29 @@ function FanqieLite:with_network(callback)
                 return
             end
             if not ok then
-                local message = user_error_messages[err]
-                if not message then
+                local failure = user_error_messages[err]
+                local message = failure and failure.message
+                if type(message) ~= "string" or message == "" then
                     message = "发生未预期的插件错误。为避免显示不受信任的错误内容，详细信息已隐藏。"
                         .. "请返回本地书架确认状态后重试；若持续出现，请停止操作并重启 KOReader。"
                 end
-                self:info("操作未完成：\n" .. message)
+                if failure and failure.retryable == true then
+                    local retry_callback = callback
+                    UIManager:show(ConfirmBox:new{
+                        text = "操作未完成：\n" .. message
+                            .. "\n\n本次操作已经停止。是否重试同一操作？",
+                        cancel_text = _("返回"),
+                        ok_text = _("重试"),
+                        flush_events_on_show = true,
+                        ok_callback = function()
+                            UIManager:nextTick(function()
+                                self:with_network(retry_callback)
+                            end)
+                        end,
+                    })
+                else
+                    self:info("操作未完成：\n" .. message)
+                end
             end
         end)
         if not wrapped_ok then
@@ -352,9 +378,11 @@ function FanqieLite:with_network(callback)
 end
 
 function FanqieLite:fetch_book(book_id)
-    local html, page_err = NetworkTask.get(
+    local html, page_err, page_error_kind = NetworkTask.get(
         BASE .. "/page/" .. book_id, nil, "正在读取书籍信息……")
-    if not html then raise_user_error(user_error_detail("获取书籍页面失败：", page_err)) end
+    if not html then
+        raise_network_error("获取书籍页面失败：", page_err, page_error_kind)
+    end
     local json_text, state_err = Parser.extract_initial_state(html)
     if not json_text then
         self:raise_parser_failure("解析书籍页面失败", state_err, BOOK_PARSE_NEXT)
@@ -366,10 +394,12 @@ function FanqieLite:fetch_book(book_id)
     local book, book_err = Parser.book_from_state(state, book_id)
     if not book then self:raise_parser_failure("解析书籍页面失败", book_err, BOOK_PARSE_NEXT) end
 
-    local directory_text, directory_err = NetworkTask.get(
+    local directory_text, directory_err, directory_error_kind = NetworkTask.get(
         BASE .. "/api/reader/directory/detail?bookId=" .. book_id,
         "application/json", "正在读取目录……")
-    if not directory_text then raise_user_error(user_error_detail("获取目录失败：", directory_err)) end
+    if not directory_text then
+        raise_network_error("获取目录失败：", directory_err, directory_error_kind)
+    end
     local payload, payload_err = Parser.decode_json(directory_text)
     if not payload then self:raise_parser_failure("解析目录失败", payload_err, DIRECTORY_PARSE_NEXT) end
     local chapters, chapters_err = Parser.directory_from_payload(payload)
@@ -442,9 +472,11 @@ function FanqieLite:submit_book_input(value)
 end
 
 function FanqieLite:search_books(url, query)
-    local json_text, request_err = NetworkTask.get(
+    local json_text, request_err, request_error_kind = NetworkTask.get(
         url, "application/json", "正在番茄官网搜索“" .. query .. "”……")
-    if not json_text then raise_user_error(user_error_detail("搜索未完成：", request_err)) end
+    if not json_text then
+        raise_network_error("搜索未完成：", request_err, request_error_kind)
+    end
     local payload, decode_err = Parser.decode_json(json_text)
     if not payload then
         self:raise_parser_failure("解析搜索结果失败", decode_err, SEARCH_PARSE_NEXT)
@@ -974,9 +1006,11 @@ function FanqieLite:open_chapter(book_id, index)
         loading_label = "缓存损坏，已拒绝打开；书架和进度未改变。\n正在联网重新获取……"
     end
     self:with_network(function()
-        local html, fetch_err = NetworkTask.get(
+        local html, fetch_err, fetch_error_kind = NetworkTask.get(
             BASE .. "/reader/" .. chapter.id, nil, loading_label)
-        if not html then raise_user_error(user_error_detail("读取章节失败：", fetch_err)) end
+        if not html then
+            raise_network_error("读取章节失败：", fetch_err, fetch_error_kind)
+        end
         local json_text, state_err = Parser.extract_initial_state(html)
         if not json_text then
             self:raise_parser_failure("解析章节失败", state_err, CHAPTER_PARSE_NEXT)
