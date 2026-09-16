@@ -2,9 +2,13 @@ local Pua = require("fanqielite.pua")
 local Identifier = require("fanqielite.identifier")
 
 local Parser = {}
+Parser.MAX_DIRECTORY_CHAPTERS = 10000
+Parser.MAX_DIRECTORY_VOLUMES = 1000
 local BOOK_INPUT_ERROR = "请输入番茄小说官方书籍链接或书籍 ID"
 local MAX_BOOK_INPUT_BYTES = 2048
 local MAX_PAGE_BYTES = 1024 * 1024
+local DIRECTORY_CHAPTER_LIMIT_ERROR = "目录章节数量超过 10000 章安全上限，已停止更新"
+local DIRECTORY_VOLUME_LIMIT_ERROR = "目录卷数量超过 1000 个安全上限，已停止更新"
 
 local function trim(value)
     return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
@@ -198,6 +202,9 @@ function Parser.book_from_state(state, fallback_id)
 end
 
 local function add_chapter(output, seen, chapter, fallback_index)
+    if #output >= Parser.MAX_DIRECTORY_CHAPTERS then
+        return nil, DIRECTORY_CHAPTER_LIMIT_ERROR
+    end
     if type(chapter) ~= "table" then return nil, "目录包含无效章节" end
     local id = chapter.itemId ~= nil and chapter.itemId or chapter.item_id
     if not valid_id(id) then return nil, "目录包含无效章节 ID" end
@@ -219,13 +226,16 @@ local function add_chapter(output, seen, chapter, fallback_index)
     return true
 end
 
-local function array_count(value, label)
+local function array_count(value, label, maximum, limit_error)
     local count, maximum_index = 0, 0
     for key in pairs(value) do
         if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
             return nil, label .. "不是连续数组"
         end
         count = count + 1
+        if maximum and (count > maximum or key > maximum) then
+            return nil, limit_error
+        end
         if key > maximum_index then maximum_index = key end
     end
     if maximum_index ~= count then return nil, label .. "不是连续数组" end
@@ -245,7 +255,8 @@ function Parser.directory_from_payload(payload)
     end
     if type(data.chapterListWithVolume) == "table" then
         local volume_count, volume_count_err = array_count(
-            data.chapterListWithVolume, "目录卷列表")
+            data.chapterListWithVolume, "目录卷列表",
+            Parser.MAX_DIRECTORY_VOLUMES, DIRECTORY_VOLUME_LIMIT_ERROR)
         if not volume_count then return nil, volume_count_err end
         for volume_index = 1, volume_count do
             local volume = data.chapterListWithVolume[volume_index]
@@ -254,7 +265,9 @@ function Parser.directory_from_payload(payload)
                 return nil, "目录卷章节结构无效"
             end
             local list = volume.chapterList or volume
-            local chapter_count, chapter_count_err = array_count(list, "目录卷章节列表")
+            local chapter_count, chapter_count_err = array_count(
+                list, "目录卷章节列表",
+                Parser.MAX_DIRECTORY_CHAPTERS, DIRECTORY_CHAPTER_LIMIT_ERROR)
             if not chapter_count then return nil, chapter_count_err end
             for chapter_index = 1, chapter_count do
                 local chapter = list[chapter_index]
@@ -267,7 +280,9 @@ function Parser.directory_from_payload(payload)
         return nil, "目录列表结构无效"
     end
     if #output == 0 and type(data.chapterList) == "table" then
-        local chapter_count, chapter_count_err = array_count(data.chapterList, "目录章节列表")
+        local chapter_count, chapter_count_err = array_count(
+            data.chapterList, "目录章节列表",
+            Parser.MAX_DIRECTORY_CHAPTERS, DIRECTORY_CHAPTER_LIMIT_ERROR)
         if not chapter_count then return nil, chapter_count_err end
         for chapter_index = 1, chapter_count do
             local chapter = data.chapterList[chapter_index]
@@ -279,7 +294,9 @@ function Parser.directory_from_payload(payload)
         return nil, "目录 ID 列表结构无效"
     end
     if #output == 0 and type(data.allItemIds) == "table" then
-        local id_count, id_count_err = array_count(data.allItemIds, "目录 ID 列表")
+        local id_count, id_count_err = array_count(
+            data.allItemIds, "目录 ID 列表",
+            Parser.MAX_DIRECTORY_CHAPTERS, DIRECTORY_CHAPTER_LIMIT_ERROR)
         if not id_count then return nil, id_count_err end
         for id_index = 1, id_count do
             local id = data.allItemIds[id_index]
