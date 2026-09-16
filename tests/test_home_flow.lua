@@ -246,7 +246,7 @@ plugin:show_settings()
 assert(shown and shown.title == "设置与数据", "settings menu did not open")
 local expected_settings = {
     "从文件导入书架", "导出本地书架", "缓存管理说明",
-    "隐私与使用边界", "完全卸载与安全回退",
+    "可选手势快捷操作", "隐私与使用边界", "完全卸载与安全回退",
 }
 for index, expected in ipairs(expected_settings) do
     assert(shown.item_table[index] and shown.item_table[index].text == expected,
@@ -254,6 +254,15 @@ for index, expected in ipairs(expected_settings) do
 end
 
 shown.item_table[4].callback()
+assert(info_message:find("不设置手势也能完整使用", 1, true),
+    "gesture notice did not preserve the visible-button fallback")
+assert(info_message:find("番茄小说：下一章", 1, true)
+        and info_message:find("番茄小说：上一章", 1, true),
+    "gesture notice did not name the registered reader actions")
+assert(info_message:find("当前打开的 Fanqie Lite 章节", 1, true),
+    "gesture notice did not explain the safe current-document boundary")
+
+shown.item_table[5].callback()
 assert(info_message:find("默认阅读只访问番茄官网公开内容", 1, true),
     "privacy notice did not explain the default public-reading boundary")
 assert(info_message:find("扫码导入目前尚未开放", 1, true),
@@ -261,7 +270,7 @@ assert(info_message:find("扫码导入目前尚未开放", 1, true),
 assert(info_message:find("不会保存账号登录", 1, true),
     "privacy notice did not state the credential persistence boundary")
 
-shown.item_table[5].callback()
+shown.item_table[6].callback()
 assert(info_message:find("先导出本地书架", 1, true),
     "uninstall notice did not recommend a recoverable backup")
 assert(info_message:find("第 1 项即可停用插件", 1, true),
