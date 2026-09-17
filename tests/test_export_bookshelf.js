@@ -10,8 +10,7 @@ const shelf = {
         book_shelf_info: [
             { book_id: "7633875868615461950", book_type: 0 },
             { book_id: "7633875868615461950", book_type: 0 },
-            { book_id: "7234567890123456789", book_type: 1 },
-            { book_id: 7633875868615461950, book_type: 0 }
+            { book_id: "7234567890123456789", book_type: 1 }
         ]
     }
 };
@@ -39,12 +38,51 @@ const credentialCanary = "COOKIE_SESSION_TOKEN_CANARY_8f7c";
 const output = exporter.buildExport(shelf, detail, progress, "2026-08-16T12:00:00Z");
 assert.strictEqual(output.format, "fanqielite-bookshelf");
 assert.strictEqual(output.version, 1);
-assert.strictEqual(output.books.length, 1, "duplicates, unsupported types and unsafe numeric IDs must be skipped");
+assert.strictEqual(output.books.length, 1, "duplicates and unsupported book types must be excluded");
 assert.strictEqual(output.books[0].title, "测试 书籍");
 assert.strictEqual(output.books[0].cover_url, "https://p3-novel.byteimg.com/cover.jpg");
 assert.strictEqual(output.books[0].current_chapter_id, "10000000002");
 assert.strictEqual(output.books[0].current_chapter_title, "第二章");
 assert.strictEqual(Object.prototype.hasOwnProperty.call(output.books[0], "cookie"), false);
+
+assert.throws(() => exporter.buildExport({
+    code: 0,
+    data: { book_shelf_info: [{ book_id: 7633875868615461950, book_type: 0 }] }
+}, detail, progress), /无效书籍 ID/,
+"a supported shelf item with an unsafe numeric ID must not disappear from a successful export");
+assert.throws(() => exporter.buildExport({
+    code: 0,
+    data: { book_shelf_info: [{
+        book_id: "7633875868615461950",
+        book_type: { token: credentialCanary }
+    }] }
+}, detail, progress), (error) => {
+    assert.strictEqual(error.message.includes(credentialCanary), false);
+    return /未知书籍类型/.test(error.message);
+}, "an unknown supported-type marker must not be silently treated as an excluded book");
+assert.throws(() => exporter.buildExport({
+    code: 0,
+    data: { book_shelf_info: [
+        { book_id: "7633875868615461950", book_type: 0 },
+        { book_id: "7334567890123456789", book_type: 0 }
+    ] }
+}, detail, progress), /书籍信息不完整/,
+"a shelf book missing from the detail response must not receive a placeholder title");
+assert.throws(() => exporter.buildExport(shelf, {
+    code: 0,
+    data: { bookList: [{ book_id: "7633875868615461950", book_name: "\n\t" }] }
+}, progress), /书名无效/,
+"an empty cleaned title must not become a placeholder title");
+assert.throws(() => exporter.buildExport(shelf, {
+    code: 0,
+    data: { bookList: {} }
+}, progress), /书籍信息返回未知结构/,
+"a malformed detail list must not become a successful incomplete export");
+assert.throws(() => exporter.buildExport(shelf, {
+    code: 0,
+    data: { bookList: [detail.data.bookList[0], detail.data.bookList[0]] }
+}, progress), /书籍信息与官方书架不一致/,
+"duplicate detail records must not be silently collapsed");
 
 const outputWithoutDiscoveredProgress = exporter.buildExport(
     shelf, detail, undefined, "2026-08-16T12:00:00Z");
@@ -249,6 +287,8 @@ async function rejectedWithoutCanary(promise, pattern) {
     let downloadedBlob;
     let downloadName;
     let successAlert = "";
+    let shelfResponse = shelf;
+    let detailResponse = detail;
     let progressResponse = progress;
     try {
         global.location = { origin: "https://fanqienovel.com", pathname: "/bookshelf" };
@@ -259,8 +299,8 @@ async function rejectedWithoutCanary(promise, pattern) {
         ] };
         global.fetch = async (url, options) => {
             requests.push({ url, options });
-            if (url.includes("/bookshelf/info/")) return mockResponse(JSON.stringify(shelf));
-            if (url.includes("/api/book/simple/info")) return mockResponse(JSON.stringify(detail));
+            if (url.includes("/bookshelf/info/")) return mockResponse(JSON.stringify(shelfResponse));
+            if (url.includes("/api/book/simple/info")) return mockResponse(JSON.stringify(detailResponse));
             if (url.includes("/api/reader/book/progress")) {
                 return mockResponse(JSON.stringify(progressResponse));
             }
@@ -309,6 +349,36 @@ async function rejectedWithoutCanary(promise, pattern) {
             "failed progress request clicked a download link");
 
         progressResponse = progress;
+        shelfResponse = {
+            code: 0,
+            data: { book_shelf_info: [{ book_id: 7633875868615461950, book_type: 0 }] }
+        };
+        requests.length = 0;
+        downloadedBlob = undefined;
+        downloadName = undefined;
+        await rejectedWithoutCanary(exporter.run(), /无效书籍 ID/);
+        assert.strictEqual(requests.length, 1,
+            "invalid supported shelf ID was not rejected before the detail request");
+        assert.strictEqual(downloadedBlob, undefined,
+            "invalid supported shelf ID created an incomplete download blob");
+        assert.strictEqual(downloadName, undefined,
+            "invalid supported shelf ID clicked a download link");
+
+        shelfResponse = shelf;
+        detailResponse = { code: 0, data: { bookList: [] } };
+        requests.length = 0;
+        downloadedBlob = undefined;
+        downloadName = undefined;
+        await rejectedWithoutCanary(exporter.run(), /书籍信息不完整/);
+        assert.strictEqual(requests.length, 2,
+            "missing detail response did not stop before requesting optional progress");
+        assert.strictEqual(downloadedBlob, undefined,
+            "missing detail response created an incomplete download blob");
+        assert.strictEqual(downloadName, undefined,
+            "missing detail response clicked a download link");
+
+        detailResponse = detail;
+        progressResponse = progress;
         requests.length = 0;
         downloadedBlob = undefined;
         downloadName = undefined;
@@ -336,6 +406,8 @@ async function rejectedWithoutCanary(promise, pattern) {
     const source = fs.readFileSync(require.resolve("../tools/export-bookshelf.js"), "utf8");
     assert.match(source, /FANQIELITE_AUTHOR_DIAGNOSTIC\s*===\s*true/,
         "browser diagnostic mode must require an explicit exact boolean opt-in");
+    assert.strictEqual(source.includes("番茄书籍 "), false,
+        "browser exporter must not manufacture placeholder titles for missing details");
     [
         /console\s*\./,
         /document\s*\.\s*cookie/,

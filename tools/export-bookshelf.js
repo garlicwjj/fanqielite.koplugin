@@ -59,12 +59,70 @@
         return payload.data || {};
     }
 
-    function buildExport(shelfPayload, detailPayload, progressPayload, exportedAt) {
+    function shelfNovelIds(shelfPayload) {
         var shelfData = responseData(shelfPayload, "读取官方书架");
+        if (!Array.isArray(shelfData.book_shelf_info)) {
+            throw safeError("官方书架返回未知结构，已停止导出");
+        }
+        var shelf = shelfData.book_shelf_info;
+        if (shelf.length > MAX_BOOKS) throw safeError("单次最多导出 500 本书");
+        var ids = [];
+        var seen = {};
+        shelf.forEach(function (item) {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                throw safeError("官方书架包含无效条目，已停止导出");
+            }
+            var bookType = item.book_type;
+            if (bookType !== undefined && bookType !== 0 && bookType !== "0") {
+                var knownOtherType = (typeof bookType === "number" && Number.isInteger(bookType))
+                    || (typeof bookType === "string" && /^\d{1,3}$/.test(bookType));
+                if (!knownOtherType) throw safeError("官方书架包含未知书籍类型，已停止导出");
+                return;
+            }
+            var id = normalizeId(item.book_id);
+            if (!id) throw safeError("官方书架包含无效书籍 ID，已停止导出");
+            if (!seen[id]) {
+                seen[id] = true;
+                ids.push(id);
+            }
+        });
+        if (!ids.length) {
+            throw safeError("官方书架中没有可导出的小说，请确认已经登录并打开书架页面");
+        }
+        return ids;
+    }
+
+    function requiredDetails(detailPayload, ids) {
         var detailData = responseData(detailPayload, "读取书籍信息");
-        var shelf = Array.isArray(shelfData.book_shelf_info) ? shelfData.book_shelf_info : [];
         var details = Array.isArray(detailData.bookList) ? detailData.bookList
-            : (Array.isArray(detailData.book_list) ? detailData.book_list : []);
+            : (Array.isArray(detailData.book_list) ? detailData.book_list : null);
+        if (!details) throw safeError("书籍信息返回未知结构，已停止导出");
+        if (details.length > MAX_BOOKS) throw safeError("书籍信息数量异常，已停止导出");
+        var requested = {};
+        ids.forEach(function (id) { requested[id] = true; });
+        var detailById = {};
+        details.forEach(function (item) {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                throw safeError("书籍信息包含无效条目，已停止导出");
+            }
+            var id = normalizeId(item.book_id);
+            if (!id || !requested[id] || detailById[id]) {
+                throw safeError("书籍信息与官方书架不一致，已停止导出");
+            }
+            detailById[id] = item;
+        });
+        ids.forEach(function (id) {
+            if (!detailById[id]) throw safeError("书籍信息不完整，已停止导出");
+            if (!cleanText(detailById[id].book_name, 100)) {
+                throw safeError("书籍信息中的书名无效，已停止导出");
+            }
+        });
+        return detailById;
+    }
+
+    function buildExport(shelfPayload, detailPayload, progressPayload, exportedAt) {
+        var ids = shelfNovelIds(shelfPayload);
+        var detailById = requiredDetails(detailPayload, ids);
         var progress = [];
         if (progressPayload !== undefined) {
             var progressData = responseData(progressPayload, "读取阅读进度");
@@ -73,31 +131,19 @@
             }
             progress = progressData;
         }
-        if (shelf.length > MAX_BOOKS) throw safeError("单次最多导出 500 本书");
-
-        var detailById = {};
-        details.forEach(function (item) {
-            var id = normalizeId(item && item.book_id);
-            if (id) detailById[id] = item;
-        });
         var progressById = {};
         progress.forEach(function (item) {
             var id = normalizeId(item && item.book_id);
             if (id) progressById[id] = item;
         });
 
-        var seen = {};
         var books = [];
-        shelf.forEach(function (item) {
-            if (item && item.book_type !== undefined && Number(item.book_type) !== 0) return;
-            var id = normalizeId(item && item.book_id);
-            if (!id || seen[id]) return;
-            seen[id] = true;
-            var detail = detailById[id] || {};
+        ids.forEach(function (id) {
+            var detail = detailById[id];
             var current = progressById[id] || {};
             var book = {
                 id: id,
-                title: cleanText(detail.book_name, 100) || ("番茄书籍 " + id)
+                title: cleanText(detail.book_name, 100)
             };
             var author = cleanText(detail.author || detail.author_name, 50);
             var cover = normalizeCover(detail.thumb_url || detail.thumb_uri);
@@ -109,7 +155,6 @@
             if (chapterId && chapterTitle) book.current_chapter_title = chapterTitle;
             books.push(book);
         });
-        if (!books.length) throw safeError("官方书架中没有可导出的小说，请确认已经登录并打开书架页面");
         return {
             format: "fanqielite-bookshelf",
             version: 1,
@@ -254,19 +299,7 @@
 
         var shelfPayload = await readJson(shelfUrl, shelfPath,
             { credentials: "include" }, "读取官方书架");
-        var shelfData = responseData(shelfPayload, "读取官方书架");
-        var shelf = Array.isArray(shelfData.book_shelf_info) ? shelfData.book_shelf_info : [];
-        var ids = [];
-        var seen = {};
-        shelf.forEach(function (item) {
-            var id = normalizeId(item && item.book_id);
-            if (id && !seen[id] && (item.book_type === undefined || Number(item.book_type) === 0)) {
-                seen[id] = true;
-                ids.push(id);
-            }
-        });
-        if (!ids.length) throw safeError("官方书架中没有可导出的小说");
-        if (ids.length > MAX_BOOKS) throw safeError("单次最多导出 500 本书");
+        var ids = shelfNovelIds(shelfPayload);
 
         var detailPath = "/api/book/simple/info";
         var detailPayload = await readJson(detailPath, detailPath, {
@@ -275,6 +308,7 @@
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
             body: JSON.stringify({ book_ids: ids })
         }, "读取书籍信息");
+        requiredDetails(detailPayload, ids);
         if (options && options.diagnostic === true) {
             var report = authorDiagnostics(detailPayload);
             alert("Fanqie Lite 作者字段诊断（未导出文件）\n" + JSON.stringify(report));
@@ -317,7 +351,9 @@
         normalizeId: normalizeId,
         officialUrl: officialUrl,
         publicFailureMessage: publicFailureMessage,
+        requiredDetails: requiredDetails,
         readJson: readJson,
+        shelfNovelIds: shelfNovelIds,
         run: run
     };
 }));
