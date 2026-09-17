@@ -38,6 +38,8 @@ local SEARCH_PARSE_NEXT = "请改用番茄官网书籍链接；若持续出现�
 local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录或解锁时请使用番茄官方客户端；"
     .. "若持续出现，请检查插件更新。"
 local NETWORK_WAIT_TIMEOUT_SECONDS = 50
+local CATALOG_DIRECT_LIMIT = 200
+local CATALOG_RANGE_SIZE = 100
 local user_error_messages = setmetatable({}, { __mode = "k" })
 
 local function book_has_progress(book)
@@ -984,10 +986,8 @@ function FanqieLite:confirm_clear_cache(book_id)
     })
 end
 
-function FanqieLite:show_catalog(book_id)
-    local book = Library.find(self.library, book_id)
-    if not book or #book.chapters == 0 then self:info("目录为空，请联网刷新"); return end
-    local cached_ids, damaged_ids = self.storage:verified_cached_chapter_ids(book.id)
+local function catalog_cache_state(plugin, book)
+    local cached_ids, damaged_ids = plugin.storage:verified_cached_chapter_ids(book.id)
     local cache_summary = "离线缓存状态不可读"
     if type(cached_ids) == "table" and type(damaged_ids) == "table" then
         local cached_count, damaged_count = 0, 0
@@ -1000,8 +1000,14 @@ function FanqieLite:show_catalog(book_id)
             cache_summary = cache_summary .. "；" .. tostring(damaged_count) .. " 章缓存需修复"
         end
     end
+    return cached_ids, damaged_ids, cache_summary
+end
+
+local function catalog_chapter_items(plugin, book, start_index, end_index,
+        cached_ids, damaged_ids)
     local items = {}
-    for index, chapter in ipairs(book.chapters) do
+    for index = start_index, end_index do
+        local chapter = book.chapters[index]
         local chapter_index = index
         local status = index == book.current_index and "  [当前]" or ""
         if type(cached_ids) == "table" and cached_ids[chapter.id] == true then
@@ -1011,16 +1017,72 @@ function FanqieLite:show_catalog(book_id)
         end
         items[#items + 1] = {
             text = chapter.title .. status,
-            callback = function() self:open_chapter(book.id, chapter_index) end,
+            callback = function() plugin:open_chapter(book.id, chapter_index) end,
         }
     end
+    return items
+end
+
+function FanqieLite:show_catalog_range(book_id, start_index, end_index)
+    local book = Library.find(self.library, book_id)
+    if not book or #book.chapters == 0 then self:info("目录为空，请联网刷新"); return end
+    if type(start_index) ~= "number" or start_index ~= math.floor(start_index)
+            or type(end_index) ~= "number" or end_index ~= math.floor(end_index)
+            or start_index < 1 or end_index < start_index or start_index > #book.chapters
+            or end_index - start_index + 1 > CATALOG_RANGE_SIZE then
+        self:info("章段范围已变化，请返回书籍页重新打开目录")
+        return
+    end
+    end_index = math.min(end_index, #book.chapters)
+    local cached_ids, damaged_ids, cache_summary = catalog_cache_state(self, book)
+    local items = catalog_chapter_items(
+        self, book, start_index, end_index, cached_ids, damaged_ids)
+    local range_text = "第 " .. tostring(start_index) .. "–" .. tostring(end_index) .. " 章"
     local menu = Menu:new{
-        title = book.title .. "\n" .. cache_summary,
+        title = book.title .. "\n" .. range_text .. "；" .. cache_summary,
         item_table = items,
         is_borderless = true,
     }
     UIManager:show(menu)
-    if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(book.current_index)) end
+    local selected = book.current_index >= start_index and book.current_index <= end_index
+        and (book.current_index - start_index + 1) or 1
+    if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(selected)) end
+end
+
+function FanqieLite:show_catalog(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book or #book.chapters == 0 then self:info("目录为空，请联网刷新"); return end
+    local cached_ids, damaged_ids, cache_summary = catalog_cache_state(self, book)
+    local items, selected, title
+    if #book.chapters <= CATALOG_DIRECT_LIMIT then
+        items = catalog_chapter_items(
+            self, book, 1, #book.chapters, cached_ids, damaged_ids)
+        selected = book.current_index
+        title = book.title .. "\n" .. cache_summary
+    else
+        items = {}
+        for start_index = 1, #book.chapters, CATALOG_RANGE_SIZE do
+            local range_start = start_index
+            local range_end = math.min(start_index + CATALOG_RANGE_SIZE - 1, #book.chapters)
+            local status = book.current_index >= range_start and book.current_index <= range_end
+                and "  [当前]" or ""
+            items[#items + 1] = {
+                text = "第 " .. tostring(range_start) .. "–" .. tostring(range_end) .. " 章" .. status,
+                callback = function()
+                    self:show_catalog_range(book.id, range_start, range_end)
+                end,
+            }
+        end
+        selected = math.floor((book.current_index - 1) / CATALOG_RANGE_SIZE) + 1
+        title = book.title .. "\n共 " .. tostring(#book.chapters) .. " 章；" .. cache_summary
+    end
+    local menu = Menu:new{
+        title = title,
+        item_table = items,
+        is_borderless = true,
+    }
+    UIManager:show(menu)
+    if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(selected)) end
 end
 
 function FanqieLite:open_file(path, imported_position)
