@@ -126,6 +126,35 @@ payload.books[1].reading_position = 0 / 0
 rejected(payload, "0 到 1")
 
 payload = valid_payload()
+payload.books[1].current_chapter_id = nil
+rejected(payload, "必须与 current_chapter_id 一起提供")
+
+payload = valid_payload()
+payload.books[1].current_chapter_id = nil
+payload.books[1].current_chapter_title = nil
+rejected(payload, "必须与 current_chapter_id 一起提供")
+
+payload = valid_payload()
+payload.books[1].current_chapter_id = nil
+payload.books[1].reading_position = nil
+rejected(payload, "必须与 current_chapter_id 一起提供")
+
+payload = valid_payload()
+payload.books[1].current_chapter_title = nil
+local progress_without_title = assert(Import.validate(payload))
+assert(progress_without_title[1].imported_progress.chapter_id == "10000000002")
+assert(progress_without_title[1].imported_progress.chapter_title == "")
+assert(progress_without_title[1].imported_progress.position == 0.5)
+
+payload = valid_payload()
+payload.books[1].current_chapter_id = nil
+payload.books[1].current_chapter_title = nil
+payload.books[1].reading_position = nil
+local no_progress = assert(Import.validate(payload))
+assert(no_progress[1].imported_progress == nil,
+    "a book without any progress fields must remain a valid bookshelf-only import")
+
+payload = valid_payload()
 payload.books.extra = payload.books[1]
 rejected(payload, "连续数组")
 
