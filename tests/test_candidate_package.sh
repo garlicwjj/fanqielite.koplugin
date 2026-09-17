@@ -133,6 +133,7 @@ grep -Fq '三个公开进度比例字段尚未证明章节内语义和量纲' "$
 grep -Fq '公开前端复核与完整性收紧' "$plugin_root/docs/BROWSER_EXPORT_PILOT_2026-09-08.md"
 grep -Fq '“设置与数据” → “从文件导入书架”' "$plugin_root/docs/bookshelf-format.md"
 grep -Fq '不会覆盖已有本地书架' "$plugin_root/docs/bookshelf-format.md"
+grep -Fq '只要出现，就必须同时提供合法 `current_chapter_id`' "$plugin_root/docs/bookshelf-format.md"
 grep -Fq 'aid=2503' "$plugin_root/docs/QR_THREAT_MODEL.md"
 grep -Fq 'appName=muye' "$plugin_root/docs/QR_THREAT_MODEL.md"
 grep -Fq '/passport/web/get_qrcode/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"

@@ -154,6 +154,10 @@ function Import.validate(payload)
                 or position == math.huge or position == -math.huge or position < 0 or position > 1) then
             return nil, "第 " .. tostring(index) .. " 本书的 reading_position 必须是 0 到 1 之间的数字"
         end
+        if not chapter_id and (source.current_chapter_title ~= nil or position ~= nil) then
+            return nil, "第 " .. tostring(index)
+                .. " 本书的 current_chapter_title 和 reading_position 必须与 current_chapter_id 一起提供"
+        end
         output[#output + 1] = {
             id = book_id,
             title = title,
