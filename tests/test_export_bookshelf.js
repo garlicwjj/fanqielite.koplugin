@@ -45,6 +45,77 @@ assert.strictEqual(output.books[0].current_chapter_id, "10000000002");
 assert.strictEqual(output.books[0].current_chapter_title, "第二章");
 assert.strictEqual(Object.prototype.hasOwnProperty.call(output.books[0], "cookie"), false);
 
+const canonicalProgressOutput = exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [{
+        book_id: "7633875868615461950",
+        item_id: "10000000003",
+        origin_chapter_title: "第三章"
+    }]
+}, "2026-08-16T12:00:00Z");
+assert.strictEqual(canonicalProgressOutput.books[0].current_chapter_id, "10000000003");
+assert.strictEqual(canonicalProgressOutput.books[0].current_chapter_title, "第三章",
+    "the current public ApiItemInfo chapter title field must be preserved");
+assert.strictEqual(Object.prototype.hasOwnProperty.call(
+    canonicalProgressOutput.books[0], "reading_position"), false,
+"unverified public progress-rate fields must not be guessed into a KOReader position");
+const publicTitleFallbackOutput = exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [{
+        book_id: "7633875868615461950",
+        item_id: "10000000004",
+        title: "第四章",
+        item_progress_rate: 75,
+        page_progress_rate: 0.75
+    }]
+});
+assert.strictEqual(publicTitleFallbackOutput.books[0].current_chapter_title, "第四章");
+assert.strictEqual(Object.prototype.hasOwnProperty.call(
+    publicTitleFallbackOutput.books[0], "reading_position"), false);
+assert.throws(() => exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [null]
+}), /阅读进度包含无效条目/,
+"a malformed discovered progress item must not become a successful export");
+assert.throws(() => exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [{ book_id: 7633875868615461950, item_id: "10000000003" }]
+}), /阅读进度包含无效书籍 ID/,
+"an unsafe numeric progress book ID must not disappear from a successful export");
+assert.throws(() => exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [
+        { book_id: "7633875868615461950", item_id: "10000000002" },
+        { book_id: "7633875868615461950", item_id: "10000000003" }
+    ]
+}), /阅读进度包含重复书籍 ID/,
+"ambiguous progress for an exported shelf book must not be silently overwritten");
+assert.throws(() => exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [{ book_id: "7633875868615461950", item_id: 10000000003 }]
+}), /阅读进度包含无效章节 ID/,
+"a matching progress item with an unsafe numeric chapter ID must stop the export");
+
+const unrelatedProgressOutput = exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: [{
+        book_id: "7334567890123456789",
+        item_id: "10000000009",
+        origin_chapter_title: credentialCanary
+    }]
+}, "2026-08-16T12:00:00Z");
+assert.strictEqual(unrelatedProgressOutput.books.length, 1);
+assert.strictEqual(JSON.stringify(unrelatedProgressOutput).includes(credentialCanary), false,
+    "valid progress for a book outside the exported shelf must remain excluded");
+assert.throws(() => exporter.buildExport(shelf, detail, {
+    code: 0,
+    data: Array.from({ length: 501 }, (_, index) => ({
+        book_id: String(7000000000 + index),
+        item_id: "10000000009"
+    }))
+}), /阅读进度数量异常/,
+"an oversized global progress response must stop before indexing untrusted entries");
+
 assert.throws(() => exporter.buildExport({
     code: 0,
     data: { book_shelf_info: [{ book_id: 7633875868615461950, book_type: 0 }] }
@@ -347,6 +418,21 @@ async function rejectedWithoutCanary(promise, pattern) {
             "failed progress request created an incomplete download blob");
         assert.strictEqual(downloadName, undefined,
             "failed progress request clicked a download link");
+
+        progressResponse = {
+            code: 0,
+            data: [{ book_id: "7633875868615461950", item_id: 10000000003 }]
+        };
+        requests.length = 0;
+        downloadedBlob = undefined;
+        downloadName = undefined;
+        await rejectedWithoutCanary(exporter.run(), /阅读进度包含无效章节 ID/);
+        assert.strictEqual(requests.length, 3,
+            "malformed progress did not stop immediately after the discovered progress request");
+        assert.strictEqual(downloadedBlob, undefined,
+            "malformed progress created an incomplete download blob");
+        assert.strictEqual(downloadName, undefined,
+            "malformed progress clicked a download link");
 
         progressResponse = progress;
         shelfResponse = {
