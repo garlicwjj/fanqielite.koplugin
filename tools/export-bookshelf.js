@@ -120,22 +120,45 @@
         return detailById;
     }
 
+    function validatedProgress(progressPayload, ids) {
+        if (progressPayload === undefined) return {};
+        var progress = responseData(progressPayload, "读取阅读进度");
+        if (!Array.isArray(progress)) {
+            throw safeError("读取阅读进度返回未知结构，已停止导出");
+        }
+        if (progress.length > MAX_BOOKS) {
+            throw safeError("阅读进度数量异常，已停止导出");
+        }
+        var requested = {};
+        ids.forEach(function (id) { requested[id] = true; });
+        var progressById = {};
+        progress.forEach(function (item) {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                throw safeError("阅读进度包含无效条目，已停止导出");
+            }
+            var id = normalizeId(item.book_id);
+            if (!id) throw safeError("阅读进度包含无效书籍 ID，已停止导出");
+            if (!requested[id]) return;
+            if (progressById[id]) {
+                throw safeError("阅读进度包含重复书籍 ID，已停止导出");
+            }
+            var chapterId = normalizeId(item.item_id);
+            if (!chapterId) throw safeError("阅读进度包含无效章节 ID，已停止导出");
+            var titleFields = ["origin_chapter_title", "title", "item_title", "chapter_title"];
+            var chapterTitle = "";
+            titleFields.some(function (field) {
+                chapterTitle = cleanText(item[field], 100);
+                return chapterTitle !== "";
+            });
+            progressById[id] = { chapter_id: chapterId, chapter_title: chapterTitle };
+        });
+        return progressById;
+    }
+
     function buildExport(shelfPayload, detailPayload, progressPayload, exportedAt) {
         var ids = shelfNovelIds(shelfPayload);
         var detailById = requiredDetails(detailPayload, ids);
-        var progress = [];
-        if (progressPayload !== undefined) {
-            var progressData = responseData(progressPayload, "读取阅读进度");
-            if (!Array.isArray(progressData)) {
-                throw safeError("读取阅读进度返回未知结构，已停止导出");
-            }
-            progress = progressData;
-        }
-        var progressById = {};
-        progress.forEach(function (item) {
-            var id = normalizeId(item && item.book_id);
-            if (id) progressById[id] = item;
-        });
+        var progressById = validatedProgress(progressPayload, ids);
 
         var books = [];
         ids.forEach(function (id) {
@@ -147,8 +170,8 @@
             };
             var author = cleanText(detail.author || detail.author_name, 50);
             var cover = normalizeCover(detail.thumb_url || detail.thumb_uri);
-            var chapterId = normalizeId(current.item_id);
-            var chapterTitle = cleanText(current.item_title || current.chapter_title, 100);
+            var chapterId = current.chapter_id;
+            var chapterTitle = current.chapter_title;
             if (author) book.author = author;
             if (cover) book.cover_url = cover;
             if (chapterId) book.current_chapter_id = chapterId;
@@ -354,6 +377,7 @@
         requiredDetails: requiredDetails,
         readJson: readJson,
         shelfNovelIds: shelfNovelIds,
+        validatedProgress: validatedProgress,
         run: run
     };
 }));

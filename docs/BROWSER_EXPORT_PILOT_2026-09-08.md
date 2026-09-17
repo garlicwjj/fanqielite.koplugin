@@ -30,3 +30,7 @@
 本次仅访问无需登录的公开书架页面和静态前端包，没有使用专用测试账号、浏览器会话、Cookie 或请求头。公开 HTML 的 SHA-256 为 `488a3a48ddfbdae1771c44e59280375d7002fd27ceee08373e36d8915762b86b`；页面引用的 `BookShelf.93e1261b.js` 为 `3c0ceb2b93656d7f48eeb717062e114f5bf6c71a4f04fbfb3460984040152e34`，其公共包 `muye_a2c8e2a7.js` 为 `6ab30580f1dee8f57939998a18a300ddd9d366eee270541dde20b9b26b887973`。
 
 当前公开实现只发起一次书架信息请求，读取完整 `book_shelf_info` 后把其中全部 `book_id` 交给 `/api/book/simple/info`；生成的公开响应模型包含 `book_list`、`book_list_info`、`book_shelf_info` 和 `group_data`，未显示游标、`has_more` 或分页字段。该证据说明当前官网前端没有可照抄的分页流程，不足以证明服务端永远不会分页，也不等于真实大书架已经通过。因此导出器没有猜测未知游标，而是收紧完整性：所有受支持书籍必须具备合法 ID，详情必须与书架 ID 一一对应并提供非空书名；任何缺失、重复、额外详情或未知结构都会在下载前整体停止，不会用占位书名生成残缺备份。
+
+### 阅读进度公开模型
+
+同一公共包把 `/api/reader/book/progress` 的成功 `data` 声明为 `ApiItemInfo` 数组，网页按 `book_id` 建立全局进度表。该模型声明 `item_id`、`origin_chapter_title`、`title`、`progress_rate`、`page_progress_rate` 和 `item_progress_rate`；但静态定义没有证明三个比例字段中哪个是章节内位置，也没有证明数值量纲。导出器因此只映射经过验证的字符串 ID 与章节标题，并对数量、对象、ID 和本次书架内重复记录安全失败；书架外的合法历史记录会排除。章节百分比继续留空，直到专用测试账号中的已读书提供不含字段值的类型与范围证据。本次公开复核没有调用进度接口或账号会话。
