@@ -1085,13 +1085,7 @@ function FanqieLite:show_catalog(book_id)
     if menu.onGotoPage then menu:onGotoPage(menu:getPageNumber(selected)) end
 end
 
-function FanqieLite:open_file(path, imported_position)
-    local after_open_callback
-    if imported_position ~= nil then
-        after_open_callback = function(reader_ui)
-            reader_ui:handleEvent(Event:new("GotoPercent", imported_position * 100))
-        end
-    end
+function FanqieLite:open_file(path, after_open_callback)
     local open_call = pcall(
         FileManager.openFile, self.ui, path, nil, nil, nil, after_open_callback)
     if not open_call then
@@ -1102,6 +1096,62 @@ function FanqieLite:open_file(path, imported_position)
         return nil
     end
     return true
+end
+
+function FanqieLite:complete_imported_position(
+        reader_ui, book_id, index, imported_position)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("章节已经打开，但本地书架状态已变化，未应用或清理导入位置。"
+            .. "\n\n请返回本地书架确认书籍；导入位置仍保留供下次安全重试。")
+        return nil
+    end
+    local current_position, pending = Library.inspect_imported_position(
+        book, index, imported_position == nil)
+    if not pending or current_position ~= imported_position then
+        self:info("章节已经打开，但待处理的导入位置状态已变化，已停止修改。"
+            .. "\n\nKOReader 本机位置和当前本地书架保持优先；请返回书籍页确认进度。")
+        return nil
+    end
+    if imported_position ~= nil then
+        local applied = pcall(function()
+            reader_ui:handleEvent(Event:new("GotoPercent", imported_position * 100))
+        end)
+        if not applied then
+            self:info("章节已经打开，但无法应用从文件导入的阅读位置。"
+                .. "\n\n导入位置仍保留，本次没有把它标记为已使用。"
+                .. "请返回书籍页重试；若持续出现，请重启 KOReader。")
+            return nil
+        end
+    end
+
+    Library.take_imported_position(book, index, true)
+    local saved = self:save_state()
+    if not saved then
+        self:info("章节已经打开，但无法保存导入位置的一次性清理。\n\n"
+            .. "本地书架已恢复到打开前的安全状态；导入位置没有丢失。"
+            .. "如果 KOReader 已生成本机阅读位置，下次打开会优先使用它；"
+            .. "否则可能再次应用导入位置。请检查存储空间或只读状态后重试。")
+        return nil
+    end
+    return true
+end
+
+function FanqieLite:after_reader_ready(reader_ui, book_id, index, imported_position)
+    local active_plugin = type(reader_ui) == "table" and reader_ui.fanqielite or nil
+    if type(active_plugin) ~= "table"
+            or type(active_plugin.complete_imported_position) ~= "function" then
+        active_plugin = self
+    end
+    local completed = pcall(
+        active_plugin.complete_imported_position, active_plugin,
+        reader_ui, book_id, index, imported_position)
+    if not completed then
+        pcall(active_plugin.info, active_plugin,
+            "章节已经打开，但无法安全完成导入位置处理。"
+            .. "\n\n未显示底层错误，也未把本次处理视为已保存。"
+            .. "请返回书籍页确认进度；若持续出现，请重启 KOReader。")
+    end
 end
 
 local function written_cache_status(prune_warning)
@@ -1144,18 +1194,14 @@ end
 
 function FanqieLite:open_prepared_chapter(
         book, index, path, imported_position, pending_consumption)
-    if not self:open_file(path, imported_position) then return nil end
-    if not pending_consumption then return true end
-
-    Library.take_imported_position(book, index, true)
-    local saved = self:save_state()
-    if not saved then
-        self:info("章节已经打开，但无法保存导入位置的一次性清理。\n\n"
-            .. "本地书架已恢复到打开前的安全状态；导入位置没有丢失。"
-            .. "如果 KOReader 已生成本机阅读位置，下次打开会优先使用它；"
-            .. "否则可能再次应用导入位置。请检查存储空间或只读状态后重试。")
+    local after_open_callback
+    if pending_consumption then
+        local book_id = book.id
+        after_open_callback = function(reader_ui)
+            self:after_reader_ready(reader_ui, book_id, index, imported_position)
+        end
     end
-    return true
+    return self:open_file(path, after_open_callback)
 end
 
 function FanqieLite:open_chapter(book_id, index)

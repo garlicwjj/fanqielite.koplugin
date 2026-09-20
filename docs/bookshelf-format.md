@@ -23,7 +23,7 @@
 
 `id` 与 `current_chapter_id` 必须是 10 到 64 位的数字字符串，不能写成 JSON 数字，否则 19 位 ID 可能丢失精度。64 位上限为未来格式保留余量，同时避免异常输入膨胀设置和缓存路径。`reading_position` 可省略；存在时必须是 0 到 1 的数字。`current_chapter_title` 或 `reading_position` 只要出现，就必须同时提供合法 `current_chapter_id`，避免进度在导入后因无法定位章节而静默丢失。纯书架文件可以同时省略三个进度字段；只有章节 ID、没有标题或百分比也允许。除 `id` 和 `title` 外，其余书籍字段均可省略。
 
-导入的 `reading_position` 只会在对应章节首次打开且 KOReader 尚无该 XHTML 的本机 sidecar 时应用一次。已有本地目录/阅读记录的书不会被导入进度覆盖；即使书籍曾从书架移除，只要缓存旁仍有 KOReader sidecar，本机位置仍优先。
+导入的 `reading_position` 只会在对应章节首次打开且 KOReader 尚无该 XHTML 的本机 sidecar 时应用一次。插件会等待 KOReader 真正完成文档初始化并触发 `ReaderReady`，位置应用成功后才把它标记为已使用；仅仅排队打开、异步加载失败或位置跳转异常都不会提前消费。已有本地目录/阅读记录的书不会被导入进度覆盖；即使书籍曾从书架移除，只要缓存旁仍有 KOReader sidecar，本机位置仍优先，并在成功打开后清理外部位置。
 
 插件使用严格字段白名单。文件中不得包含 Cookie、Token、session、CSRF、手机号、密码、授权头或其他账号凭证；出现凭证字段或未知字段时，整个文件都会被拒绝，现有书架不会改变。错误提示不会重复显示原始字段名或字段内容。
 

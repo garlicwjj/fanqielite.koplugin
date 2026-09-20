@@ -19,17 +19,26 @@ local DocSettings = {
 
 local file_open_mode = "throw"
 local file_open_calls = 0
+local pending_after_open_callback
 local FileManager = {
-    openFile = function()
+    openFile = function(_, _, _, _, _, after_open_callback)
         file_open_calls = file_open_calls + 1
         if file_open_mode == "throw" then error(unsafe_error()) end
-        return true
+        pending_after_open_callback = after_open_callback
     end,
 }
+
+local Event = {}
+function Event:new(name, value) return { name = name, value = value } end
 
 local inspect_calls, take_calls, touch_calls = 0, 0, 0
 local pending_position
 local Library = {
+    find = function(library, book_id)
+        for _, candidate in ipairs(library.books or {}) do
+            if candidate.id == book_id then return candidate end
+        end
+    end,
     inspect_imported_position = function(_, _, has_local_position)
         inspect_calls = inspect_calls + 1
         if pending_position ~= nil and not has_local_position then
@@ -59,7 +68,7 @@ local stubs = {
     device = {},
     dispatcher = {},
     docsettings = DocSettings,
-    ["ui/event"] = {},
+    ["ui/event"] = Event,
     ["apps/filemanager/filemanager"] = FileManager,
     ["ui/widget/infomessage"] = {},
     ["ui/widget/inputdialog"] = {},
@@ -104,6 +113,7 @@ local plugin = setmetatable({
     end,
 }, { __index = FanqieLite })
 local book = { id = "7134567890123456789", chapters = {{ id = "7134567890123456701" }} }
+plugin.library.books = { book }
 
 local contained, ready, sidecar_err = pcall(function()
     return plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
@@ -172,14 +182,77 @@ assert(save_calls == 2, "failed chapter file open performed a cleanup settings w
 file_open_mode = "success"
 pending_ready, imported_position, pending_consumption =
     plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
+local saves_before_scheduled_open = save_calls
 assert(plugin:open_prepared_chapter(
     book, 1, "/safe/cache.xhtml", imported_position, pending_consumption),
-    "normal prepared chapter open reported failure")
+    "normal prepared chapter open was not scheduled")
 assert(file_open_calls == 2, "chapter file open call count changed")
+assert(type(pending_after_open_callback) == "function",
+    "pending imported position did not install a ReaderReady callback")
+assert(pending_position == 0.6 and take_calls == 0,
+    "queued reader open consumed the imported position before ReaderReady")
+assert(save_calls == saves_before_scheduled_open,
+    "queued reader open performed cleanup before ReaderReady")
+local goto_event
+pending_after_open_callback({
+    handleEvent = function(_, event) goto_event = event end,
+})
+assert(goto_event and goto_event.name == "GotoPercent" and goto_event.value == 60,
+    "ReaderReady callback did not apply the imported position")
 assert(pending_position == nil and take_calls == 1,
-    "successful chapter file open did not consume the imported position")
-assert(save_calls == 4,
-    "successful imported-position open did not persist preparation and cleanup")
+    "ReaderReady callback did not consume the imported position")
+assert(save_calls == saves_before_scheduled_open + 1,
+    "ReaderReady callback did not persist imported-position cleanup")
+
+pending_position = 0.45
+restored_pending_position = pending_position
+local apply_failure_ready, apply_failure_position, apply_failure_pending =
+    plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
+assert(apply_failure_ready and apply_failure_position == 0.45 and apply_failure_pending,
+    "position-application failure fixture did not prepare the imported position")
+assert(plugin:open_prepared_chapter(
+    book, 1, "/safe/cache.xhtml", apply_failure_position, apply_failure_pending),
+    "position-application failure reader open was not scheduled")
+local takes_before_apply_failure = take_calls
+local saves_before_apply_failure = save_calls
+pending_after_open_callback({ handleEvent = function() error(unsafe_error()) end })
+assert(pending_position == 0.45 and take_calls == takes_before_apply_failure,
+    "failed GotoPercent consumed the imported position")
+assert(save_calls == saves_before_apply_failure,
+    "failed GotoPercent persisted imported-position cleanup")
+local apply_warning = infos[#infos]
+assert(apply_warning:find("无法应用", 1, true)
+        and apply_warning:find("导入位置仍保留", 1, true),
+    "failed GotoPercent did not explain the retained position")
+assert(not apply_warning:find(canary, 1, true) and tostring_calls == 0,
+    "failed GotoPercent leaked or stringified the raw error")
+
+pending_position = 0.35
+local handoff_ready, handoff_position, handoff_pending =
+    plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
+assert(handoff_ready and handoff_position == 0.35 and handoff_pending,
+    "active-plugin handoff fixture did not prepare the imported position")
+assert(plugin:open_prepared_chapter(
+    book, 1, "/safe/cache.xhtml", handoff_position, handoff_pending),
+    "active-plugin handoff reader open was not scheduled")
+local replacement_saves = 0
+local replacement_plugin = setmetatable({
+    library = { books = { book } },
+    info = function(_, message) infos[#infos + 1] = message end,
+    save_state = function() replacement_saves = replacement_saves + 1; return true end,
+}, { __index = FanqieLite })
+local old_saves_before_handoff = save_calls
+local handoff_event
+pending_after_open_callback({
+    fanqielite = replacement_plugin,
+    handleEvent = function(_, event) handoff_event = event end,
+})
+assert(handoff_event and handoff_event.value == 35,
+    "active ReaderUI plugin did not apply the imported position")
+assert(replacement_saves == 1 and save_calls == old_saves_before_handoff,
+    "ReaderReady cleanup used the stale FileManager plugin instance")
+assert(pending_position == nil,
+    "active ReaderUI plugin did not consume the imported position")
 
 pending_position = 0.25
 restored_pending_position = pending_position
@@ -187,10 +260,12 @@ local cleanup_ready, cleanup_position, cleanup_pending =
     plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
 assert(cleanup_ready == true and cleanup_position == 0.25 and cleanup_pending == true,
     "cleanup-failure fixture did not prepare the imported position")
-save_failure_on_call = save_calls + 1
 assert(plugin:open_prepared_chapter(
     book, 1, "/safe/cache.xhtml", cleanup_position, cleanup_pending),
-    "cleanup settings failure incorrectly reported the opened chapter as failed")
+    "cleanup-failure reader open was not scheduled")
+save_failure_on_call = save_calls + 1
+pending_after_open_callback({ handleEvent = function() end })
+save_failure_on_call = nil
 assert(pending_position == 0.25,
     "cleanup settings failure did not restore the persisted imported position")
 local cleanup_warning = infos[#infos]
@@ -200,9 +275,20 @@ assert(type(cleanup_warning) == "string"
 assert(cleanup_warning:find("导入位置没有丢失", 1, true),
     "cleanup settings failure did not explain restored data safety")
 
-pending_position = nil
-save_failure_on_call = nil
 sidecar_mode = "present"
+pending_position = 0.2
+local local_ready, local_position, local_pending =
+    plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
+assert(local_ready and local_position == nil and local_pending,
+    "local-sidecar fixture did not defer stale imported-position cleanup")
+assert(plugin:open_prepared_chapter(
+    book, 1, "/safe/cache.xhtml", local_position, local_pending),
+    "local-sidecar reader open was not scheduled")
+local local_handle_calls = 0
+pending_after_open_callback({ handleEvent = function() local_handle_calls = local_handle_calls + 1 end })
+assert(local_handle_calls == 0 and pending_position == nil,
+    "local-sidecar ReaderReady cleanup reapplied or retained imported position")
+
 local ordinary_save_calls = save_calls
 local ordinary_ready, ordinary_position, ordinary_pending =
     plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml")
@@ -210,9 +296,11 @@ assert(ordinary_ready == true and ordinary_position == nil and ordinary_pending 
     "ordinary chapter preparation unexpectedly created imported-position cleanup")
 assert(plugin:open_prepared_chapter(
     book, 1, "/safe/cache.xhtml", ordinary_position, ordinary_pending),
-    "ordinary prepared chapter open reported failure")
+    "ordinary prepared chapter open was not scheduled")
 assert(save_calls == ordinary_save_calls + 1,
     "ordinary chapter open performed a second settings write")
+assert(pending_after_open_callback == nil,
+    "ordinary chapter open installed an unnecessary ReaderReady callback")
 
 save_failure_on_call = save_calls + 1
 local post_write_ready, post_write_save_err = plugin:prepare_chapter_open(
