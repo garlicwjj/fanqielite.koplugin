@@ -122,6 +122,7 @@ grep -Fq '再次点按刚才的联网入口会取消这次等待' "$plugin_root/
 grep -Fq '随后连接成功也不会偷偷继续旧操作' "$plugin_root/INSTALL.md"
 grep -Fq '插件会说明本地数据未改变，并提供“重试 / 返回”' "$plugin_root/INSTALL.md"
 grep -Fq '不会显示一键重试' "$plugin_root/INSTALL.md"
+grep -Fq '提示磁盘设置状态无法确认' "$plugin_root/INSTALL.md"
 grep -Fq '不能把本次操作计为“5 分钟内开始阅读”通过' "$plugin_root/INSTALL.md"
 grep -Fq '最多接受单书 10,000 章和 1,000 卷' "$plugin_root/README.md"
 grep -Fq '插件最多接受单书 10,000 章和 1,000 卷' "$plugin_root/INSTALL.md"

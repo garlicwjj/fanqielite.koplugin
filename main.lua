@@ -339,12 +339,26 @@ end
 function FanqieLite:save_state(force)
     local candidate = self:state_table()
     if not force and Persistence.equal(candidate, self.persisted_settings) then return true end
-    local saved, save_err = Persistence.write(
+    local saved, save_err, persistence_state = Persistence.write(
         self.settings.file, candidate, self.persisted_settings)
     if not saved then
         self:restore_persisted_state()
         local detail = type(save_err) == "string" and save_err
             or "设置写入没有返回可安全显示的错误说明"
+        if persistence_state == "uncertain" then
+            if self.startup_sensitive_cleanup then
+                return nil, "检测到旧插件设置包含不应持久化的账号、会话或不安全封面地址，"
+                    .. "但安全清理后的主设置无法完成最终校验，自动恢复也失败：" .. detail
+                    .. "\n\n运行中的本地书架仍使用清洗副本，但磁盘上的主设置文件可能已经改变。"
+                    .. "请停止继续操作并重启 KOReader；保留 fanqielite.lua.old，"
+                    .. "若重启后书架异常请从备份恢复。"
+            end
+            return nil, "无法安全保存插件设置：" .. detail
+                .. "\n\n本次内存中的书架或阅读进度变更已撤销，"
+                .. "但磁盘上的主设置文件可能已经改变，无法确认与当前内存一致。"
+                .. "请停止继续操作并重启 KOReader；保留 fanqielite.lua.old，"
+                .. "若重启后书架异常请从备份恢复。"
+        end
         if self.startup_sensitive_cleanup then
             return nil, "检测到旧插件设置包含不应持久化的账号、会话或不安全封面地址，"
                 .. "但无法完成安全清理：" .. detail

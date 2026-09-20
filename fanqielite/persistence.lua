@@ -180,7 +180,7 @@ local function atomic_write(path, data)
         return nil, "无法原子替换设置文件"
     end
     local valid, validation_err = verify(path, data)
-    if not valid then return nil, validation_err end
+    if not valid then return nil, validation_err, true end
     -- The data file itself is already fsync'ed. Directory fsync is best-effort
     -- because a failed directory sync happens after the atomic rename.
     pcall(ffiUtil.fsyncDirectory, path)
@@ -201,7 +201,18 @@ function Persistence.write(path, candidate, previous)
             return nil, "无法保存上一版设置：" .. detail .. "；本次设置未写入"
         end
     end
-    return atomic_write(path, candidate)
+    local written, write_err, replaced = atomic_write(path, candidate)
+    if written then return true end
+    if not replaced then return nil, write_err end
+
+    if previous ~= nil then
+        local recovered = atomic_write(path, previous)
+        if recovered then
+            return nil, "主设置替换后的最终校验失败；已恢复上一版设置", "recovered"
+        end
+    end
+    return nil, "主设置已替换但最终校验失败，自动恢复也未完成；"
+        .. "磁盘设置状态无法确认", "uncertain"
 end
 
 return Persistence

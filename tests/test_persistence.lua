@@ -61,6 +61,7 @@ assert(Persistence.equal(backup, previous), "backup does not contain previous st
 local original_open = io.open
 local original_rename = os.rename
 local original_remove = os.remove
+local original_dofile = dofile
 local main_rename_called = false
 local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
 local error_tostring_calls = 0
@@ -163,6 +164,68 @@ assert(not rename_failure_err:find(canary, 1, true), "rename error leaked raw co
 assert(error_tostring_calls == 0, "rename error invoked __tostring")
 assert(original_open(rename_path, "rb") == nil, "rename failure created main settings file")
 assert(original_open(rename_path .. ".tmp", "rb") == nil, "rename failure left temporary file")
+
+local final_verify_path = base .. "-final-verify.lua"
+assert(Persistence.write(final_verify_path, previous, nil))
+local final_verify_failures = 1
+_G.dofile = function(filename)
+    if filename == final_verify_path and final_verify_failures > 0 then
+        final_verify_failures = final_verify_failures - 1
+        error(unsafe_error())
+    end
+    return original_dofile(filename)
+end
+local final_failed, final_failure_err, final_state =
+    Persistence.write(final_verify_path, candidate, previous)
+_G.dofile = original_dofile
+assert(final_failed == nil, "failed final verification reported success")
+assert(final_state == "recovered", "final verification failure did not report recovered disk state")
+assert(final_failure_err:find("最终校验失败", 1, true)
+        and final_failure_err:find("已恢复上一版设置", 1, true),
+    "recovered final verification failure did not describe the actual disk state")
+assert(not final_failure_err:find(canary, 1, true),
+    "final verification error leaked raw content")
+assert(error_tostring_calls == 0, "final verification error invoked __tostring")
+assert(Persistence.equal(assert(original_dofile(final_verify_path)), previous),
+    "final verification failure left the candidate in the main settings file")
+assert(Persistence.equal(assert(original_dofile(final_verify_path .. ".old")), previous),
+    "final verification recovery damaged the verified previous-state backup")
+
+local uncertain_path = base .. "-uncertain.lua"
+assert(Persistence.write(uncertain_path, previous, nil))
+local uncertain_verify_failures, uncertain_renames = 1, 0
+_G.dofile = function(filename)
+    if filename == uncertain_path and uncertain_verify_failures > 0 then
+        uncertain_verify_failures = uncertain_verify_failures - 1
+        error(unsafe_error())
+    end
+    return original_dofile(filename)
+end
+os.rename = function(source, target)
+    if target == uncertain_path then
+        uncertain_renames = uncertain_renames + 1
+        if uncertain_renames == 2 then error(unsafe_error()) end
+    end
+    return original_rename(source, target)
+end
+local uncertain_failed, uncertain_err, uncertain_state =
+    Persistence.write(uncertain_path, candidate, previous)
+_G.dofile = original_dofile
+os.rename = original_rename
+assert(uncertain_failed == nil, "unrecoverable final verification failure reported success")
+assert(uncertain_state == "uncertain",
+    "unrecoverable final verification failure did not report uncertain disk state")
+assert(uncertain_err:find("磁盘设置状态无法确认", 1, true),
+    "unrecoverable final verification failure did not describe disk uncertainty")
+assert(not uncertain_err:find("上一版设置仍被保留", 1, true),
+    "unrecoverable final verification failure falsely promised the previous settings")
+assert(not uncertain_err:find(canary, 1, true),
+    "unrecoverable final verification error leaked raw content")
+assert(error_tostring_calls == 0, "unrecoverable final verification error invoked __tostring")
+assert(Persistence.equal(assert(original_dofile(uncertain_path)), candidate),
+    "unrecoverable final verification fixture did not leave the replaced candidate on disk")
+assert(Persistence.equal(assert(original_dofile(uncertain_path .. ".old")), previous),
+    "unrecoverable final verification damaged the previous-state backup")
 
 local forbidden_candidates = {
     { library = { version = 1, books = { { id = "10000000003", sessionid = canary } } } },
@@ -283,6 +346,14 @@ os.remove(open_path)
 os.remove(open_path .. ".tmp")
 os.remove(rename_path)
 os.remove(rename_path .. ".tmp")
+os.remove(final_verify_path)
+os.remove(final_verify_path .. ".old")
+os.remove(final_verify_path .. ".tmp")
+os.remove(final_verify_path .. ".old.tmp")
+os.remove(uncertain_path)
+os.remove(uncertain_path .. ".old")
+os.remove(uncertain_path .. ".tmp")
+os.remove(uncertain_path .. ".old.tmp")
 os.remove(base .. "-encode.lua")
 os.remove(base .. "-encode.lua.tmp")
 os.remove(linked_path)

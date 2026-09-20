@@ -20,6 +20,7 @@ local Library = {
 }
 
 local persistence_error
+local persistence_state
 local persistence_tostring_calls = 0
 local plugin
 local import_path_value = "/mnt/us"
@@ -56,7 +57,7 @@ local stubs = {
     ["fanqielite.persistence"] = {
         copy = copy,
         equal = function() return false end,
-        write = function() return nil, persistence_error end,
+        write = function() return nil, persistence_error, persistence_state end,
     },
     ["fanqielite.search"] = {},
     ["fanqielite.storage"] = {},
@@ -141,5 +142,21 @@ assert(save_err:find("可安全显示", 1, true), "unsafe persistence error did 
 assert(not save_err:find(canary, 1, true), "unsafe persistence error leaked raw content")
 assert(persistence_tostring_calls == 0, "unsafe persistence error invoked __tostring")
 assert(plugin.library.books[1].title == "本地书籍", "failed save did not restore persisted library")
+
+plugin.library.books[1].title = "磁盘状态未知的新标题"
+persistence_error = "主设置已替换，但恢复上一版失败"
+persistence_state = "uncertain"
+local uncertain_saved, uncertain_save_err = plugin:save_state(true)
+persistence_state = nil
+assert(uncertain_saved == nil, "uncertain disk state reported save success")
+assert(uncertain_save_err:find("磁盘上的主设置文件可能已经改变", 1, true),
+    "uncertain disk state did not disclose the possible replacement")
+assert(uncertain_save_err:find("停止继续操作", 1, true)
+        and uncertain_save_err:find("重启 KOReader", 1, true),
+    "uncertain disk state did not provide a safe recovery action")
+assert(not uncertain_save_err:find("上一版设置仍被保留", 1, true),
+    "uncertain disk state falsely promised the previous settings")
+assert(plugin.library.books[1].title == "本地书籍",
+    "uncertain save did not restore the in-memory persisted library")
 
 print("state boundary tests passed")

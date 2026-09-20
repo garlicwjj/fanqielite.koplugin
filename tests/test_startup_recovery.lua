@@ -37,7 +37,7 @@ local settings = {
     data = copy(raw_settings),
     readSetting = function(self, key) return self.data[key] end,
 }
-local written_candidate, written_previous, persistence_failure
+local written_candidate, written_previous, persistence_failure, persistence_state
 
 local function has_sensitive_fields(value, seen)
     if type(value) ~= "table" then return false end
@@ -98,7 +98,7 @@ local stubs = {
         write = function(_, candidate, previous)
             written_candidate = copy(candidate)
             written_previous = copy(previous)
-            if persistence_failure then return nil, persistence_failure end
+            if persistence_failure then return nil, persistence_failure, persistence_state end
             return true
         end,
     },
@@ -233,5 +233,29 @@ assert(written_previous and written_previous.sessionid == nil,
     "failed credential cleanup attempted to back up the unsafe settings")
 assert(failed_cleanup_plugin.settings.data.sessionid == nil,
     "failed credential cleanup restored unsafe settings into active memory")
+
+settings.data = copy(unsafe_settings)
+written_candidate, written_previous = nil, nil
+persistence_failure = "主设置已替换但最终校验失败，自动恢复也未完成"
+persistence_state = "uncertain"
+local uncertain_cleanup_plugin = setmetatable({
+    ui = { menu = { registerToMainMenu = function() end } },
+    info = function() end,
+}, { __index = FanqieLite })
+uncertain_cleanup_plugin:init()
+persistence_failure, persistence_state = nil, nil
+
+assert(uncertain_cleanup_plugin.startup_save_error
+        and uncertain_cleanup_plugin.startup_save_error:find(
+            "磁盘上的主设置文件可能已经改变", 1, true),
+    "uncertain credential cleanup did not disclose the possible disk replacement")
+assert(uncertain_cleanup_plugin.startup_save_error:find("停止继续操作", 1, true)
+        and uncertain_cleanup_plugin.startup_save_error:find("fanqielite.lua.old", 1, true),
+    "uncertain credential cleanup did not provide a safe recovery path")
+assert(not uncertain_cleanup_plugin.startup_save_error:find(
+        credential_canary, 1, true),
+    "uncertain credential cleanup leaked the canary")
+assert(uncertain_cleanup_plugin.settings.data.sessionid == nil,
+    "uncertain credential cleanup restored unsafe settings into active memory")
 
 print("startup recovery tests passed")
