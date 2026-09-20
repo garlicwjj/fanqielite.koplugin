@@ -44,11 +44,28 @@
     function normalizeCover(value) {
         if (typeof value !== "string") return "";
         if (value.indexOf("//") === 0) value = "https:" + value;
-        if (value.length > 2048 || /[\x00-\x20\x7f]/.test(value)) return "";
+        if (value.length > 2048 || /[\x00-\x20\x7f]/.test(value)
+                || /%(?![0-9a-f]{2})/i.test(value)
+                || /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value)) return "";
         var parsed;
         try { parsed = new URL(value); }
         catch (_) { return ""; }
         if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) return "";
+        if (parsed.hostname.indexOf("[") === 0 || parsed.hostname.length > 253
+                || parsed.hostname.split(".").some(function (label) {
+                    return !label || label.length > 63
+                        || label.indexOf("-") === 0 || label.slice(-1) === "-";
+                })) return "";
+        if (parsed.port && (Number(parsed.port) < 1 || Number(parsed.port) > 65535)) return "";
+        var unsafeQuery = false;
+        parsed.searchParams.forEach(function (_, key) {
+            var normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (normalized === "auth"
+                    || /authorization|cookie|csrf|mobile|password|phone|session|telephone|token/.test(normalized)) {
+                unsafeQuery = true;
+            }
+        });
+        if (unsafeQuery) return "";
         return parsed.href;
     }
 

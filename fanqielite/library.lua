@@ -1,4 +1,5 @@
 local Identifier = require("fanqielite.identifier")
+local SafeURL = require("fanqielite.safeurl")
 
 local Library = {}
 
@@ -24,7 +25,7 @@ end
 local function clean_cover_url(value)
     if value == nil then return nil, false end
     local url, changed = clean_text(value, nil, 2048)
-    if url == "" or not url:match("^https://") then return nil, true end
+    if url == "" or not SafeURL.https(url, 2048) then return nil, true end
     return url, changed
 end
 

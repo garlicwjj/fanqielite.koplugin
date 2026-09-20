@@ -194,6 +194,41 @@ equal(text_changed_again, false, "repaired saved text is idempotent")
 equal(repaired_text_again.books[1].title, repaired_text.title,
     "repaired saved text remains stable")
 
+local cover_canary = "FANQIELITE_COVER_URL_CANARY_9d31"
+local unsafe_covers, unsafe_covers_changed = Library.load({
+    version = 1,
+    books = {
+        {
+            id = "7134567890123456771", title = "用户信息", author = "",
+            cover_url = "https://user:" .. cover_canary .. "@example.invalid/cover.jpg",
+            chapters = {}, current_index = 1, added_at = 1, updated_at = 1, last_opened_at = 0,
+        },
+        {
+            id = "7134567890123456772", title = "片段", author = "",
+            cover_url = "https://example.invalid/cover.jpg#" .. cover_canary,
+            chapters = {}, current_index = 1, added_at = 1, updated_at = 1, last_opened_at = 0,
+        },
+        {
+            id = "7134567890123456773", title = "凭证查询", author = "",
+            cover_url = "https://example.invalid/cover.jpg?sessionid=" .. cover_canary,
+            chapters = {}, current_index = 1, added_at = 1, updated_at = 1, last_opened_at = 0,
+        },
+        {
+            id = "7134567890123456774", title = "合法签名", author = "",
+            cover_url = "https://example.invalid/cover.jpg?x-signature=abc&x-expires=123",
+            chapters = {}, current_index = 1, added_at = 1, updated_at = 1, last_opened_at = 0,
+        },
+    },
+}, nil, nil, nil, 1)
+equal(unsafe_covers_changed, true, "unsafe saved cover URLs require repair")
+for index = 1, 3 do
+    equal(unsafe_covers.books[index].cover_url, nil,
+        "unsafe saved cover URL " .. tostring(index) .. " was retained")
+end
+equal(unsafe_covers.books[4].cover_url,
+    "https://example.invalid/cover.jpg?x-signature=abc&x-expires=123",
+    "safe signed cover URL was removed")
+
 local function load_saved_progress(progress)
     return Library.load({
         version = 1,

@@ -1,5 +1,6 @@
 local Import = {}
 local Identifier = require("fanqielite.identifier")
+local SafeURL = require("fanqielite.safeurl")
 
 Import.FORMAT = "fanqielite-bookshelf"
 Import.VERSION = 1
@@ -140,8 +141,8 @@ function Import.validate(payload)
         if not author then return nil, author_err end
         local cover_url, cover_err = text(source.cover_url, "第 " .. tostring(index) .. " 本书的 cover_url", 2048, false)
         if not cover_url then return nil, cover_err end
-        if cover_url ~= "" and not cover_url:match("^https://") then
-            return nil, "第 " .. tostring(index) .. " 本书的 cover_url 必须使用 HTTPS"
+        if cover_url ~= "" and not SafeURL.https(cover_url, 2048) then
+            return nil, "第 " .. tostring(index) .. " 本书的 cover_url 必须是安全 HTTPS 地址"
         end
         local chapter_id, chapter_id_err = id(
             source.current_chapter_id, "第 " .. tostring(index) .. " 本书的 current_chapter_id", true)

@@ -218,6 +218,18 @@ assert.strictEqual(exporter.normalizeCover("http://example.com/a.jpg"), "");
 assert.strictEqual(exporter.normalizeCover("https://example.com/a b.jpg"), "");
 assert.strictEqual(exporter.normalizeCover("https://user:" + credentialCanary + "@example.com/a.jpg"), "");
 assert.strictEqual(exporter.normalizeCover("https://example.com/a.jpg#" + credentialCanary), "");
+assert.strictEqual(exporter.normalizeCover(
+    "https://example.com/a.jpg?access_token=" + credentialCanary), "");
+assert.strictEqual(exporter.normalizeCover(
+    "https://example.com/a.jpg?%74oken=" + credentialCanary), "");
+assert.strictEqual(exporter.normalizeCover(
+    "https://example.com/a.jpg?auth=" + credentialCanary), "");
+assert.strictEqual(exporter.normalizeCover("https://example.com:0/a.jpg"), "");
+assert.strictEqual(exporter.normalizeCover("https://-example.com/a.jpg"), "");
+assert.strictEqual(exporter.normalizeCover("https://[::1]/a.jpg"), "");
+assert.strictEqual(exporter.normalizeCover(
+    "https://example.com/a.jpg?x-signature=abc&x-expires=123"),
+"https://example.com/a.jpg?x-signature=abc&x-expires=123");
 assert.strictEqual(exporter.discoverUrl([
     { name: "https://fanqienovel.com/first" },
     { name: "https://attacker.invalid/api/reader/book/progress?a=1" },

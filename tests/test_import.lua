@@ -115,7 +115,38 @@ assert(not duplicate_err:find(payload.books[1].id, 1, true),
 
 payload = valid_payload()
 payload.books[1].cover_url = "http://example.invalid/cover.jpg"
-rejected(payload, "必须使用 HTTPS")
+rejected(payload, "安全 HTTPS")
+
+local unsafe_cover_urls = {
+    "https://user:" .. filesystem_canary .. "@example.invalid/cover.jpg",
+    "https://example.invalid/cover.jpg#" .. filesystem_canary,
+    "https:///cover.jpg",
+    "https://example.invalid/cover image.jpg",
+    "https://example.invalid:70000/cover.jpg",
+    "https://example.invalid:0/cover.jpg",
+    "https://example.invalid:bad/cover.jpg",
+    "https://-example.invalid/cover.jpg",
+    "https://[::1]/cover.jpg",
+    "https://example.invalid/cover%0aimage.jpg",
+    "https://example.invalid/cover.jpg?access_token=" .. filesystem_canary,
+    "https://example.invalid/cover.jpg?%74oken=" .. filesystem_canary,
+    "https://example.invalid/cover.jpg?auth=" .. filesystem_canary,
+}
+for _, unsafe_cover_url in ipairs(unsafe_cover_urls) do
+    payload = valid_payload()
+    payload.books[1].cover_url = unsafe_cover_url
+    local unsafe_cover_result, unsafe_cover_err = Import.validate(payload)
+    assert(unsafe_cover_result == nil and unsafe_cover_err:find("安全 HTTPS", 1, true),
+        "unsafe cover URL was accepted")
+    assert(not unsafe_cover_err:find(filesystem_canary, 1, true),
+        "unsafe cover URL content leaked into the import error")
+end
+
+payload = valid_payload()
+payload.books[1].cover_url = "https://example.invalid/cover.jpg?x-signature=abc&x-expires=123"
+local signed_cover = assert(Import.validate(payload))
+assert(signed_cover[1].cover_url == payload.books[1].cover_url,
+    "non-credential CDN query parameters were rejected")
 
 payload = valid_payload()
 payload.books[1].reading_position = 1.1
