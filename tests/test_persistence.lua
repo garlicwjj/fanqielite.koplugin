@@ -203,6 +203,36 @@ assert(not Persistence.has_sensitive_fields({
     } } },
 }), "ordinary title text was treated as a credential field")
 
+local unsafe_cover_url = "https://example.invalid/cover.jpg?access_token=" .. canary
+assert(Persistence.has_sensitive_fields({
+    library = { version = 1, books = { {
+        id = "10000000005", title = "不安全封面", cover_url = unsafe_cover_url,
+    } } },
+}), "credential-bearing cover URL in loaded settings was not detected")
+assert(not Persistence.has_sensitive_fields({
+    library = { version = 1, books = { {
+        id = "10000000006", title = "安全签名封面",
+        cover_url = "https://cdn.example.invalid/cover.jpg?x-signature=abc&x-expires=123",
+    } } },
+}), "safe signed cover URL was treated as sensitive")
+
+local unsafe_cover_path = base .. "-unsafe-cover.lua"
+local unsafe_cover_written, unsafe_cover_err = Persistence.write(
+    unsafe_cover_path,
+    { library = { version = 1, books = {} } },
+    { library = { version = 1, books = { {
+        id = "10000000005", title = "不安全封面", cover_url = unsafe_cover_url,
+    } } } })
+assert(unsafe_cover_written == nil, "credential-bearing cover URL was backed up")
+assert(unsafe_cover_err and unsafe_cover_err:find("不安全封面地址", 1, true),
+    "unsafe cover backup rejection is not actionable")
+assert(not unsafe_cover_err:find(canary, 1, true),
+    "cover URL canary leaked into persistence error")
+assert(io.open(unsafe_cover_path, "rb") == nil,
+    "main file was created after unsafe cover backup rejection")
+assert(io.open(unsafe_cover_path .. ".old", "rb") == nil,
+    "credential-bearing cover backup file was created")
+
 local deep_settings, deep_cursor = {}, nil
 deep_cursor = deep_settings
 for _ = 1, 12000 do

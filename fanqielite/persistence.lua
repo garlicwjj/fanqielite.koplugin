@@ -1,5 +1,6 @@
 local dump = require("dump")
 local ffiUtil = require("ffi/util")
+local SafeURL = require("fanqielite.safeurl")
 local SafeTemporary = require("fanqielite.safetemporary")
 
 local Persistence = {}
@@ -51,6 +52,10 @@ local function contains_sensitive_field(value)
             for key, child in pairs(current) do
                 if type(key) == "string" then
                     local normalized = key:lower():gsub("[^%a%d]", "")
+                    if normalized == "coverurl" and child ~= nil and child ~= ""
+                            and not SafeURL.https(child, 2048) then
+                        return true
+                    end
                     if sensitive_exact_keys[normalized] then return true end
                     for _, fragment in ipairs(sensitive_key_fragments) do
                         if normalized:find(fragment, 1, true) then return true end
@@ -187,7 +192,7 @@ function Persistence.write(path, candidate, previous)
     if type(candidate) ~= "table" then return nil, "插件设置必须是对象" end
     if Persistence.has_sensitive_fields(candidate)
             or Persistence.has_sensitive_fields(previous) then
-        return nil, "拒绝保存账号凭证、二维码会话或授权请求头字段"
+        return nil, "拒绝保存账号凭证、二维码会话、授权请求头或不安全封面地址"
     end
     if previous ~= nil then
         local backup_ok, backup_err = atomic_write(path .. ".old", previous)

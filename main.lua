@@ -346,7 +346,7 @@ function FanqieLite:save_state(force)
         local detail = type(save_err) == "string" and save_err
             or "设置写入没有返回可安全显示的错误说明"
         if self.startup_sensitive_cleanup then
-            return nil, "检测到旧插件设置包含不应持久化的账号或会话字段，"
+            return nil, "检测到旧插件设置包含不应持久化的账号、会话或不安全封面地址，"
                 .. "但无法完成安全清理：" .. detail
                 .. "\n\n运行中的本地书架已使用清洗副本，原设置文件可能仍未更新。"
                 .. "请勿继续账号导入；检查 Kindle 剩余空间或只读状态后重启 KOReader。"

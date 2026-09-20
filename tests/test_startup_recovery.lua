@@ -1,5 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
+local SafeURL = require("fanqielite.safeurl")
+
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -45,6 +47,10 @@ local function has_sensitive_fields(value, seen)
     for key, child in pairs(value) do
         if type(key) == "string" then
             local normalized = key:lower():gsub("[^%a%d]", "")
+            if normalized == "coverurl" and child ~= nil and child ~= ""
+                    and not SafeURL.https(child, 2048) then
+                return true
+            end
             if normalized:find("cookie", 1, true)
                     or normalized:find("session", 1, true)
                     or normalized:find("token", 1, true)
@@ -158,6 +164,30 @@ assert(unsafe_plugin.settings.data.sessionid == nil,
     "credential remained reachable from active settings state")
 assert(unsafe_plugin.startup_sensitive_cleanup == nil,
     "successful startup cleanup retained a sensitive-cleanup flag")
+
+local cover_canary = "FANQIELITE_STARTUP_COVER_CANARY_17d4"
+local unsafe_cover_settings = copy(written_candidate)
+unsafe_cover_settings.library.books[1].cover_url =
+    "https://example.invalid/cover.jpg?access_token=" .. cover_canary
+settings.data = unsafe_cover_settings
+written_candidate, written_previous = nil, nil
+
+local unsafe_cover_plugin = setmetatable({
+    ui = { menu = { registerToMainMenu = function() end } },
+    info = function() end,
+}, { __index = FanqieLite })
+unsafe_cover_plugin:init()
+
+assert(written_candidate and written_candidate.library.books[1].cover_url == nil,
+    "unsafe cover URL reached sanitized startup settings")
+assert(written_previous and written_previous.library.books[1].cover_url == nil,
+    "unsafe cover URL reached sanitized startup backup")
+assert(unsafe_cover_plugin.persisted_settings.library.books[1].cover_url == nil,
+    "unsafe cover URL remained reachable from persisted startup state")
+assert(unsafe_cover_plugin.settings.data.library.books[1].cover_url == nil,
+    "unsafe cover URL remained reachable from active settings state")
+assert(unsafe_cover_plugin.startup_sensitive_cleanup == nil,
+    "successful unsafe-cover cleanup retained a sensitive-cleanup flag")
 
 settings.data = copy(unsafe_settings)
 written_candidate, written_previous = nil, nil
