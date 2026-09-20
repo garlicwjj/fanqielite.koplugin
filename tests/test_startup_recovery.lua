@@ -189,6 +189,29 @@ assert(unsafe_cover_plugin.settings.data.library.books[1].cover_url == nil,
 assert(unsafe_cover_plugin.startup_sensitive_cleanup == nil,
     "successful unsafe-cover cleanup retained a sensitive-cleanup flag")
 
+settings.data = copy(unsafe_cover_settings)
+written_candidate, written_previous = nil, nil
+persistence_failure = "无法原子替换设置文件"
+local failed_cover_cleanup_plugin = setmetatable({
+    ui = { menu = { registerToMainMenu = function() end } },
+    info = function() end,
+}, { __index = FanqieLite })
+failed_cover_cleanup_plugin:init()
+persistence_failure = nil
+
+assert(failed_cover_cleanup_plugin.startup_save_error
+        and failed_cover_cleanup_plugin.startup_save_error:find("不安全封面地址", 1, true),
+    "failed unsafe-cover cleanup did not explain the startup risk")
+assert(failed_cover_cleanup_plugin.startup_save_error:find(
+        "原设置文件可能仍未更新", 1, true),
+    "failed unsafe-cover cleanup claimed the disk copy was clean")
+assert(not failed_cover_cleanup_plugin.startup_save_error:find(cover_canary, 1, true),
+    "failed unsafe-cover cleanup leaked the canary")
+assert(written_previous and written_previous.library.books[1].cover_url == nil,
+    "failed unsafe-cover cleanup attempted to back up the unsafe URL")
+assert(failed_cover_cleanup_plugin.settings.data.library.books[1].cover_url == nil,
+    "failed unsafe-cover cleanup restored the unsafe URL into active memory")
+
 settings.data = copy(unsafe_settings)
 written_candidate, written_previous = nil, nil
 persistence_failure = "无法原子替换设置文件"
