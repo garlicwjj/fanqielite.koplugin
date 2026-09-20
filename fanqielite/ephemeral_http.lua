@@ -13,6 +13,23 @@ Client.MAX_CREDENTIAL_HEADER_BYTES = 16 * 1024
 local HOST = "fanqienovel.com"
 local BLOCK_TIMEOUT = 10
 local TOTAL_TIMEOUT = 20
+local TIMEOUT_SETUP_ERROR = "无法安全配置一次性授权网络超时，已停止请求；"
+    .. "请重启 KOReader 后重试。"
+local TIMEOUT_RESET_ERROR = "一次性授权请求已经停止，但无法恢复 KOReader 网络超时设置；"
+    .. "为避免影响后续联网操作，请重启 KOReader。"
+
+local function configure_timeout()
+    local configured = pcall(
+        socketutil.set_timeout, socketutil, BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    if configured then return true end
+    pcall(socketutil.reset_timeout, socketutil)
+    return nil, TIMEOUT_SETUP_ERROR
+end
+
+local function restore_timeout()
+    return pcall(socketutil.reset_timeout, socketutil)
+end
+
 local USER_AGENT = "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
 local reserved_headers = {
@@ -181,9 +198,10 @@ function Client:request(operation, input)
     }
     if body ~= nil then request.source = ltn12.source.string(body) end
 
-    socketutil:set_timeout(BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    local timeout_ready, timeout_err = configure_timeout()
+    if not timeout_ready then return nil, timeout_err end
     local called, ok, code, response_headers, status = pcall(http.request, request)
-    socketutil:reset_timeout()
+    if not restore_timeout() then return nil, TIMEOUT_RESET_ERROR end
     if too_large then return nil, "一次性授权响应超过 256 KB，已安全停止" end
     if not called then return nil, fixed_request_error(ok) end
     if not ok then return nil, fixed_request_error(code or status) end

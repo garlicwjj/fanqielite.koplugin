@@ -8,6 +8,22 @@ local USER_AGENT = "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 Chrome/12
 local MAX_BYTES = 1024 * 1024
 local BLOCK_TIMEOUT = 10
 local TOTAL_TIMEOUT = 20
+local TIMEOUT_SETUP_ERROR = "无法安全配置网络超时，已停止请求；"
+    .. "本地数据未改变。请重启 KOReader 后重试。"
+local TIMEOUT_RESET_ERROR = "网络请求已经停止，但无法恢复 KOReader 网络超时设置；"
+    .. "本地数据未改变。为避免影响后续联网操作，请重启 KOReader。"
+
+local function configure_timeout()
+    local configured = pcall(
+        socketutil.set_timeout, socketutil, BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    if configured then return true end
+    pcall(socketutil.reset_timeout, socketutil)
+    return nil, TIMEOUT_SETUP_ERROR
+end
+
+local function restore_timeout()
+    return pcall(socketutil.reset_timeout, socketutil)
+end
 
 local function request_error(value)
     if type(value) ~= "string" then
@@ -81,7 +97,8 @@ function Http.get(url, accept)
         end
         return 1
     end
-    socketutil:set_timeout(BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    local timeout_ready, timeout_err = configure_timeout()
+    if not timeout_ready then return nil, timeout_err end
     local called, ok, code, headers, status = pcall(http.request, {
             url = url,
             method = "GET",
@@ -95,7 +112,7 @@ function Http.get(url, accept)
             },
             sink = sink,
         })
-    socketutil:reset_timeout()
+    if not restore_timeout() then return nil, TIMEOUT_RESET_ERROR end
     if not called then return nil, request_error(ok) end
     if not ok then return nil, request_error(code or status) end
     local numeric_code = (type(code) == "string" or type(code) == "number") and tonumber(code) or nil

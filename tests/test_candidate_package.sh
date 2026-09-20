@@ -145,5 +145,6 @@ grep -Fq '/passport/web/get_qrcode/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '/passport/web/check_qrconnect/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '/passport/web/logout/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '不得启用真实扫码' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
+grep -Fq '复位函数自身异常时固定停止' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 
 printf '%s\n' "candidate package tests passed"

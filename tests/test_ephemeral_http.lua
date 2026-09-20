@@ -3,6 +3,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local canary = "FANQIELITE_SYNTHETIC_CREDENTIAL_CANARY"
 local handler, last_request
 local timeout_calls, reset_calls = 0, 0
+local timeout_mode = "normal"
+local timeout_error_value = "unsafe sensitive timeout framework error"
 local http_stub = {}
 local tls_create = function() return {} end
 
@@ -26,10 +28,14 @@ end
 package.preload["socketutil"] = function()
     return {
         set_timeout = function(_, block, total)
+            if timeout_mode == "set_throw" then error(timeout_error_value) end
             assert(block == 10 and total == 20, "sensitive timeout mismatch")
             timeout_calls = timeout_calls + 1
         end,
-        reset_timeout = function() reset_calls = reset_calls + 1 end,
+        reset_timeout = function()
+            reset_calls = reset_calls + 1
+            if timeout_mode == "reset_throw" then error(timeout_error_value) end
+        end,
     }
 end
 package.preload["fanqielite.verified_tls"] = function()
@@ -162,4 +168,42 @@ rejected, rejected_err = client:request("synthetic_get")
 assert(rejected == nil and rejected_err:find("传输不完整", 1, true))
 
 assert(timeout_calls == 6 and reset_calls == 6, "attempted requests did not reset timeouts")
+
+timeout_mode = "set_throw"
+local timeout_tostring_calls = 0
+timeout_error_value = setmetatable({}, { __tostring = function()
+    timeout_tostring_calls = timeout_tostring_calls + 1
+    return canary
+end })
+local calls_before_setup_failure = network_calls
+local resets_before_setup_failure = reset_calls
+local setup_contained, setup_result, setup_err = pcall(
+    client.request, client, "synthetic_get")
+assert(setup_contained, "timeout setup exception escaped the sensitive HTTP boundary")
+assert(setup_result == nil and network_calls == calls_before_setup_failure,
+    "sensitive request continued after timeout setup failed")
+assert(setup_err:find("配置一次性授权网络超时", 1, true),
+    "sensitive timeout setup failure was not classified")
+assert(not setup_err:find(canary, 1, true), "sensitive timeout setup error leaked")
+assert(reset_calls == resets_before_setup_failure + 1,
+    "sensitive timeout setup failure did not attempt a best-effort reset")
+assert(timeout_tostring_calls == 0, "sensitive timeout setup error was stringified")
+
+timeout_mode = "reset_throw"
+handler = function(request)
+    network_calls = network_calls + 1
+    assert(request.sink("ok") == 1)
+    return 1, 200, { ["content-length"] = "2" }, "OK"
+end
+local reset_contained, reset_result, reset_err = pcall(
+    client.request, client, "synthetic_get")
+assert(reset_contained, "timeout reset exception escaped the sensitive HTTP boundary")
+assert(reset_result == nil, "sensitive response was accepted after timeout reset failed")
+assert(reset_err:find("恢复 KOReader 网络超时", 1, true)
+        and reset_err:find("重启 KOReader", 1, true),
+    "sensitive timeout reset failure lacked a safe recovery action")
+assert(not reset_err:find(canary, 1, true), "sensitive timeout reset error leaked")
+assert(timeout_tostring_calls == 0, "sensitive timeout reset error was stringified")
+timeout_mode = "normal"
+timeout_error_value = "unsafe sensitive timeout framework error"
 print("ephemeral HTTP tests passed")

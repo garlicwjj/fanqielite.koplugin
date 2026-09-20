@@ -3,6 +3,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local handler
 local http_stub = {}
 local timeout_calls, reset_calls = {}, 0
+local timeout_mode = "normal"
+local timeout_error_value = "unsafe timeout framework error"
 local certificate_names = { "fanqienovel.com" }
 local certificate_mode = "valid"
 local tls_config, closed_tls_connections = nil, 0
@@ -47,9 +49,13 @@ end
 package.preload["socketutil"] = function()
     return {
         set_timeout = function(_, block, total)
+            if timeout_mode == "set_throw" then error(timeout_error_value) end
             timeout_calls[#timeout_calls + 1] = { block = block, total = total }
         end,
-        reset_timeout = function() reset_calls = reset_calls + 1 end,
+        reset_timeout = function()
+            reset_calls = reset_calls + 1
+            if timeout_mode == "reset_throw" then error(timeout_error_value) end
+        end,
     }
 end
 
@@ -244,5 +250,44 @@ contains(object_err, "无法连接番茄官方服务", "object transport message
 assert(not object_err:find(credential_canary, 1, true), "transport error object leaked")
 assert(transport_tostring_calls == 0, "transport error object invoked __tostring")
 assert(reset_calls == 21, "timeout must reset after object transport failure")
+
+timeout_mode = "set_throw"
+local timeout_canary = "FANQIELITE_TIMEOUT_ERROR_CANARY_91a7"
+local timeout_tostring_calls = 0
+timeout_error_value = setmetatable({}, { __tostring = function()
+    timeout_tostring_calls = timeout_tostring_calls + 1
+    return timeout_canary
+end })
+called = false
+handler = function() called = true; return 1, 200, {}, "OK" end
+local resets_before_setup_failure = reset_calls
+local setup_contained, setup_result, setup_err = pcall(
+    Http.get, "https://fanqienovel.com/page/1234567890")
+assert(setup_contained, "timeout setup exception escaped the public HTTP boundary")
+assert(setup_result == nil and called == false,
+    "request continued after timeout setup failed")
+contains(setup_err, "配置网络超时", "timeout setup failure message")
+contains(setup_err, "本地数据未改变", "timeout setup data-safety message")
+assert(reset_calls == resets_before_setup_failure + 1,
+    "timeout setup failure did not attempt a best-effort reset")
+assert(not setup_err:find(timeout_canary, 1, true) and timeout_tostring_calls == 0,
+    "timeout setup failure leaked or stringified the raw exception")
+
+timeout_mode = "reset_throw"
+handler = function(request)
+    assert(request.sink("hello") == 1)
+    return 1, 200, { ["content-length"] = "5" }, "OK"
+end
+local reset_contained, reset_result, reset_err = pcall(
+    Http.get, "https://fanqienovel.com/page/1234567890")
+assert(reset_contained, "timeout reset exception escaped the public HTTP boundary")
+assert(reset_result == nil, "response was accepted after timeout reset failed")
+contains(reset_err, "恢复 KOReader 网络超时", "timeout reset failure message")
+contains(reset_err, "重启 KOReader", "timeout reset recovery action")
+contains(reset_err, "本地数据未改变", "timeout reset data-safety message")
+assert(not reset_err:find(timeout_canary, 1, true) and timeout_tostring_calls == 0,
+    "timeout reset failure leaked or stringified the raw exception")
+timeout_mode = "normal"
+timeout_error_value = "unsafe timeout framework error"
 
 print("http tests passed")
