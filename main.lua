@@ -1104,10 +1104,24 @@ function FanqieLite:open_file(path, imported_position)
     return true
 end
 
-function FanqieLite:prepare_chapter_open(book, index, path)
+local function written_cache_status(prune_warning)
+    local status = "缓存状态已改变；较早缓存可能已按每书 12 个上限自动清理。"
+    if prune_warning ~= nil then
+        status = status .. "\n旧缓存自动清理未完成：" .. cache_error_detail(prune_warning)
+    end
+    return status
+end
+
+function FanqieLite:prepare_chapter_open(book, index, path, cache_written, prune_warning)
     local sidecar_call, has_local_position = pcall(
         DocSettings.hasSidecarFile, DocSettings, path)
     if not sidecar_call then
+        if cache_written then
+            return nil, "章节缓存已经写入，但无法确认 KOReader 本机阅读位置，已停止打开章节。"
+                .. "\n\n本地书架和阅读进度没有改变；"
+                .. written_cache_status(prune_warning)
+                .. "\n请返回书籍页重试；若持续出现，请重启 KOReader。"
+        end
         return nil, "无法确认 KOReader 本机阅读位置，已停止打开章节。"
             .. "本地书架、阅读进度和缓存没有改变。"
             .. "请返回书籍页重试；若持续出现，请重启 KOReader。"
@@ -1117,7 +1131,14 @@ function FanqieLite:prepare_chapter_open(book, index, path)
     Library.touch(self.library, book.id, index)
     self.active_book_id = book.id
     local saved, save_err = self:save_state()
-    if not saved then return nil, save_err end
+    if not saved then
+        if cache_written then
+            return nil, "章节缓存已经写入，但无法保存继续阅读位置，已停止打开章节。"
+                .. "\n\n" .. written_cache_status(prune_warning)
+                .. "\n" .. user_error_detail("设置保存失败：", save_err)
+        end
+        return nil, save_err
+    end
     return true, imported_position, pending_consumption
 end
 
@@ -1191,7 +1212,7 @@ function FanqieLite:open_chapter(book_id, index)
                 .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
         end
         local ready, position_or_err, pending_consumption =
-            self:prepare_chapter_open(book, index, path)
+            self:prepare_chapter_open(book, index, path, true, prune_warning)
         if not ready then raise_user_error(position_or_err) end
         UIManager:nextTick(function()
             local opened = self:open_prepared_chapter(

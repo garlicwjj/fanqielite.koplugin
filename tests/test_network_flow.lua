@@ -487,6 +487,45 @@ assert(chapter_parse_failure:find("需要登录或解锁时请使用番茄官方
 NetworkTask.get = original_network_get
 Parser.extract_initial_state = original_extract_initial_state
 
+local original_chapter_from_state = Parser.chapter_from_state
+local original_to_xhtml = Parser.to_xhtml
+local original_prepare_chapter_open = plugin.prepare_chapter_open
+local post_write_cache_flag, post_write_prune_warning
+plugin.library = { books = {{
+    id = "1234567890",
+    title = "缓存阶段测试书",
+    chapters = {{ id = "10000000001", title = "第一章" }},
+}} }
+plugin.storage = {
+    cached_chapter = function() return nil end,
+    write_chapter = function()
+        return "/safe/10000000001.xhtml", nil, "旧缓存清理失败"
+    end,
+}
+NetworkTask.get = function() return "<html>chapter</html>" end
+Parser.extract_initial_state = function() return "{}" end
+Parser.decode_json = function() return { reader = {} } end
+Parser.chapter_from_state = function()
+    return { id = "10000000001", title = "第一章", paragraphs = { "正文" }, pua_count = 0 }
+end
+Parser.to_xhtml = function() return "safe xhtml" end
+plugin.prepare_chapter_open = function(_, _, _, _, cache_written, prune_warning)
+    post_write_cache_flag = cache_written
+    post_write_prune_warning = prune_warning
+    return nil, "缓存后准备测试停止"
+end
+plugin:open_chapter("1234567890", 1)
+assert(post_write_cache_flag == true,
+    "network chapter path did not mark the cache as already written")
+assert(post_write_prune_warning == "旧缓存清理失败",
+    "network chapter path did not carry the prune warning into preparation")
+plugin.prepare_chapter_open = original_prepare_chapter_open
+NetworkTask.get = original_network_get
+Parser.extract_initial_state = original_extract_initial_state
+Parser.decode_json = original_decode_json
+Parser.chapter_from_state = original_chapter_from_state
+Parser.to_xhtml = original_to_xhtml
+
 local no_directory = plugin:book_local_status({ chapters = {} }, 0, 1000)
 assert(no_directory:find("尚未获取目录", 1, true), "missing directory state not explained")
 assert(no_directory:find("首次阅读需要联网", 1, true), "first online requirement missing")

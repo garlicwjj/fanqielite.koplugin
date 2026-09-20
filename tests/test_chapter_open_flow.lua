@@ -122,6 +122,18 @@ assert(tostring_calls == 0, "sidecar inspection error invoked __tostring")
 assert(inspect_calls == 0 and take_calls == 0 and touch_calls == 0 and save_calls == 0,
     "sidecar inspection failure changed reading state")
 
+local cache_written_ready, cache_written_err = plugin:prepare_chapter_open(
+    book, 1, "/safe/cache.xhtml", true, "旧缓存清理失败")
+assert(cache_written_ready == nil, "post-write sidecar failure reported success")
+assert(cache_written_err:find("章节缓存已经写入", 1, true),
+    "post-write sidecar failure hid the successful cache write")
+assert(cache_written_err:find("缓存状态已改变", 1, true),
+    "post-write sidecar failure claimed the cache was unchanged")
+assert(cache_written_err:find("旧缓存清理失败", 1, true),
+    "post-write sidecar failure lost the prune warning")
+assert(not cache_written_err:find("缓存没有改变", 1, true),
+    "post-write sidecar failure retained the false unchanged-cache claim")
+
 sidecar_mode = "present"
 local normal_ready = assert(plugin:prepare_chapter_open(book, 1, "/safe/cache.xhtml"))
 assert(normal_ready == true, "normal sidecar inspection did not prepare the chapter")
@@ -201,5 +213,19 @@ assert(plugin:open_prepared_chapter(
     "ordinary prepared chapter open reported failure")
 assert(save_calls == ordinary_save_calls + 1,
     "ordinary chapter open performed a second settings write")
+
+save_failure_on_call = save_calls + 1
+local post_write_ready, post_write_save_err = plugin:prepare_chapter_open(
+    book, 1, "/safe/cache.xhtml", true, "旧缓存清理失败")
+save_failure_on_call = nil
+assert(post_write_ready == nil, "post-write settings failure reported success")
+assert(post_write_save_err:find("章节缓存已经写入", 1, true),
+    "post-write settings failure hid the successful cache write")
+assert(post_write_save_err:find("无法保存继续阅读位置", 1, true),
+    "post-write settings failure did not identify the failed stage")
+assert(post_write_save_err:find("缓存状态已改变", 1, true),
+    "post-write settings failure did not explain the cache state")
+assert(post_write_save_err:find("旧缓存清理失败", 1, true),
+    "post-write settings failure lost the prune warning")
 
 print("chapter open flow tests passed")

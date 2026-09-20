@@ -113,6 +113,7 @@ grep -Fq '实际打开过后，该入口才会变为“继续阅读”' "$plugin
 grep -Fq '[可离线]' "$plugin_root/INSTALL.md"
 grep -Fq '[缓存需修复]' "$plugin_root/INSTALL.md"
 grep -Fq '不会因缓存路径或安全范围异常而先下载正文' "$plugin_root/INSTALL.md"
+grep -Fq '新章节缓存可以在问题排除后复用' "$plugin_root/INSTALL.md"
 grep -Fq '选择即可切换，不需要设置手势' "$plugin_root/INSTALL.md"
 grep -Fq '不可用方向不会显示' "$plugin_root/INSTALL.md"
 grep -Fq '手势完全可选' "$plugin_root/INSTALL.md"
