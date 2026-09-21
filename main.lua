@@ -527,14 +527,17 @@ function FanqieLite:load_book(input)
     UIManager:nextTick(function() self:show_book(record.id) end)
 end
 
-function FanqieLite:refresh_book(book_id)
+function FanqieLite:refresh_book(book_id, quiet)
     local book, chapters = self:fetch_book(book_id)
     local record, save_err = Library.upsert(self.library, book, chapters)
     if not record then raise_user_error(save_err) end
     self.active_book_id = record.id
     local saved, state_err = self:save_state()
     if not saved then raise_user_error(state_err) end
-    self:info("目录已刷新，共 " .. tostring(#record.chapters) .. " 章", 3)
+    if not quiet then
+        self:info("目录已刷新，共 " .. tostring(#record.chapters) .. " 章", 3)
+    end
+    return record
 end
 
 function FanqieLite:prompt_book()
@@ -867,8 +870,11 @@ function FanqieLite:show_book(book_id)
         items[#items + 1] = {
             text = _("联网获取目录并开始阅读"), callback = function()
                 self:with_network(function()
-                    self:refresh_book(book.id)
-                    UIManager:nextTick(function() self:show_book(book.id) end)
+                    local refreshed = self:refresh_book(book.id, true)
+                    -- Start a second network operation only after this one is reset.
+                    UIManager:nextTick(function()
+                        self:open_chapter(refreshed.id, refreshed.current_index)
+                    end)
                 end)
             end,
         }

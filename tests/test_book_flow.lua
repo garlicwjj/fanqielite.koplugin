@@ -1,12 +1,19 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local shown
+local deferred_next_tick, next_tick_callbacks = false, {}
 local Menu = {}
 function Menu:new(options) return options end
 
 local UIManager = {
     show = function(_, widget) shown = widget end,
-    nextTick = function(_, callback) callback() end,
+    nextTick = function(_, callback)
+        if deferred_next_tick then
+            next_tick_callbacks[#next_tick_callbacks + 1] = callback
+        else
+            callback()
+        end
+    end,
 }
 
 local WidgetContainer = {}
@@ -132,7 +139,10 @@ local refresh_item = assert(find_item("刷新书籍信息与目录"),
     "book details did not expose the directory refresh action")
 local refreshed_id, reopened_id
 plugin.with_network = function(_, callback) callback() end
-plugin.refresh_book = function(_, id) refreshed_id = id end
+plugin.refresh_book = function(_, id)
+    refreshed_id = id
+    return { id = id, current_index = 2 }
+end
 plugin.show_book = function(_, id) reopened_id = id end
 refresh_item.callback()
 assert(refreshed_id == book_id, "refresh action targeted the wrong book")
@@ -158,5 +168,24 @@ assert(shown.item_table[2].text:find("尚未获取目录", 1, true),
     "pending-directory status did not follow the primary action")
 assert(shown.item_table[3].text:find("清理章节缓存", 1, true),
     "management actions changed order for a pending book")
+opened_id, opened_index = nil, nil
+deferred_next_tick = true
+plugin.with_network = function(self, callback)
+    self.network_busy = true
+    callback()
+    self.network_busy = false
+end
+plugin.open_chapter = function(self, id, index)
+    assert(not self.network_busy, "chapter was opened inside the directory network operation")
+    opened_id, opened_index = id, index
+end
+shown.item_table[1].callback()
+assert(refreshed_id == book_id, "pending book refreshed the wrong directory")
+assert(opened_id == nil and #next_tick_callbacks == 1,
+    "chapter open was not deferred until the directory operation finished")
+deferred_next_tick = false
+table.remove(next_tick_callbacks, 1)()
+assert(opened_id == book_id and opened_index == 2,
+    "pending book did not start reading the restored chapter after refresh")
 
 print("book flow tests passed")
