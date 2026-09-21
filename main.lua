@@ -591,7 +591,22 @@ function FanqieLite:search_books(url, query)
     if not results then
         self:raise_parser_failure("解析搜索结果失败", results_err, SEARCH_PARSE_NEXT)
     end
+    if #results == 0 then
+        UIManager:nextTick(function() self:show_empty_search() end)
+        return
+    end
     UIManager:nextTick(function() self:show_search_results(query, results) end)
+end
+
+function FanqieLite:show_empty_search()
+    UIManager:show(ConfirmBox:new{
+        text = "没有找到匹配的书籍。可以换用完整书名或作者名；"
+            .. "如果官网搜索不可用，请打开番茄官网书籍详情页，复制地址栏链接后重新输入。"
+            .. "\n\n本地书架、阅读进度和缓存没有改变。",
+        cancel_text = _("返回"),
+        ok_text = _("重新输入"),
+        ok_callback = function() self:prompt_book() end,
+    })
 end
 
 function FanqieLite:show_search_results(query, results)
@@ -607,6 +622,10 @@ function FanqieLite:show_search_results(query, results)
             end,
         }
     end
+    items[#items + 1] = {
+        text = "没有想要的书？重新输入或粘贴官网链接",
+        callback = function() self:prompt_book() end,
+    }
     UIManager:show(Menu:new{
         title = "搜索：“" .. query .. "”",
         item_table = items,

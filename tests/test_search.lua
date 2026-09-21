@@ -120,6 +120,7 @@ local excessive, excessive_err = Search.parse(too_many)
 assert(excessive == nil and excessive_err:find("数量异常", 1, true))
 
 local empty, empty_err = Search.parse({ code = 0, data = { search_book_data_list = {} } })
-assert(empty == nil and empty_err:find("没有找到", 1, true))
+assert(type(empty) == "table" and #empty == 0 and empty_err == nil,
+    "a valid zero-result search was treated as a malformed response")
 
 print("search tests passed")

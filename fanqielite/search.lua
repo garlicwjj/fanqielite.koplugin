@@ -78,7 +78,7 @@ function Search.parse(payload)
     end
     if maximum_index ~= count then return nil, "官方搜索结果不是连续数组" end
     if count > MAX_RESULTS then return nil, "官方搜索结果数量异常，已拒绝显示" end
-    if count == 0 then return nil, "没有找到相关书籍，请尝试完整书名、作者名或官网链接" end
+    if count == 0 then return {} end
 
     local output, seen = {}, {}
     for _, item in ipairs(source) do
