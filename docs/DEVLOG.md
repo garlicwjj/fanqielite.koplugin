@@ -2,7 +2,11 @@
 
 ## 2026-09-21 官网公开入口只读烟雾检查
 
-匿名从[番茄官网排行榜](https://fanqienovel.com/rank/1)选取一条当前公开的 `/page/7654593151348247614` 书籍链接。只读请求该详情页和其官方目录接口，不使用账号、不写 Kindle、不保存原始页面或正文。生产 `Parser.extract_initial_state()` 从详情页提取状态成功；其中 `page.bookId` 与请求 ID 一致，`bookName` 和 `author` 均为字符串，未观察到私用区字符。目录响应 `code=0`，`chapterListWithVolume` 为 1 个卷数组、包含 255 个章节对象，`allItemIds` 也有 255 项；章节对象可见 `itemId`、`title` 等键。此次只检查字段和数量，未在桌面加载 KOReader 的 `rapidjson` 执行完整生产目录解析，也未打开任何章节，不能计入 30 本/90 场景或宣称正文兼容。
+匿名从[番茄官网排行榜](https://fanqienovel.com/rank/1)选取当前公开的[255 章书籍页](https://fanqienovel.com/page/7654593151348247614)与[1936 章书籍页](https://fanqienovel.com/page/7320218217488600126)。只读请求详情页和官方目录接口，不使用账号、不写 Kindle、不保存原始页面或正文。生产 `Parser.extract_initial_state()` 从前一本详情页提取状态成功；`page.bookId` 与请求 ID 一致，`bookName` 和 `author` 均为字符串，未观察到私用区字符。其目录响应 `code=0`，`chapterListWithVolume` 为 1 个卷数组、包含 255 个章节对象，`allItemIds` 也有 255 项。
+
+本机现有 KOReader `rapidjson.so` 是 Kindle ARM 构建，无法在 macOS LuaJIT 中加载。因此桌面验证先用 Node 解析官网 JSON，再经不落盘的管道只投影原始 ID、标题与卷数组层级，交给生产 `Parser.book_from_state()`、`Parser.directory_from_payload()` 与固定取样器。255 章样本得到 255 章和 1／128／255 位置；1936 章样本的目录响应约 532,200 字节、5 卷，得到 1936 章和 1／968／1936 位置。两份目录标题均未观察到私用区字符。投影丢弃了其他响应字段，且未执行 Kindle 的完整 JSON 解码、缓存与显示链；不能据此宣称实机目录兼容。
+
+对官网明确公开的[首章](https://fanqienovel.com/reader/7654593184701366846)只做一次内存中的正文解析检查：生产 `Parser.extract_initial_state()` 提取状态后，同样以长度帧管道传入原始章节 ID、标题、正文、权限和字数字段。`Parser.chapter_from_state()` 成功，得到 96 段、映射 1,115 个 PUA 字符，并在内存生成 7,885 字节 XHTML；没有保存或展示正文。它不证明人工校对无乱码、KOReader 渲染或缓存落盘成功，也不计入正式 30 本／90 场景矩阵。
 
 同次对当前官方搜索路径仅发起一次无账号只读请求，得到空正文；没有返回可解析的书籍列表。它只说明此网络环境下这次搜索不可用，不能推断所有用户的搜索都会失败。实验版继续推荐粘贴官网书籍详情链接，不扩展对第三方或含混分享文本的解析，不绕过官网验证。
 
