@@ -44,6 +44,19 @@ assert.strictEqual(output.books[0].cover_url, "https://p3-novel.byteimg.com/cove
 assert.strictEqual(output.books[0].current_chapter_id, "10000000002");
 assert.strictEqual(output.books[0].current_chapter_title, "第二章");
 assert.strictEqual(Object.prototype.hasOwnProperty.call(output.books[0], "cookie"), false);
+assert.match(exporter.exportSummary(output, true), /已导出 1 本书/);
+assert.match(exporter.exportSummary(output, true), /章节内位置不会导出/);
+assert.doesNotMatch(exporter.exportSummary(output, true), /未获得作者/);
+const incompleteSummary = exporter.exportSummary({ books: [
+    { id: "7633875868615461950", title: "测试书" }
+] }, false);
+assert.match(incompleteSummary, /1 本未获得作者/);
+assert.match(incompleteSummary, /未发现官方阅读进度请求/);
+assert.match(incompleteSummary, /不是完整的阅读进度备份/);
+assert.doesNotMatch(incompleteSummary, /可能尚未阅读/);
+assert.match(exporter.exportSummary({ books: [
+    { id: "7633875868615461950", title: "测试书" }
+] }, true), /可能尚未阅读或官网未提供/);
 
 const canonicalProgressOutput = exporter.buildExport(shelf, detail, {
     code: 0,
@@ -373,13 +386,14 @@ async function rejectedWithoutCanary(promise, pattern) {
     let shelfResponse = shelf;
     let detailResponse = detail;
     let progressResponse = progress;
+    let resourceEntries = [
+        { name: "https://attacker.invalid/reading/bookapi/bookshelf/info/?cookie=" + credentialCanary },
+        { name: "https://fanqienovel.com/reading/bookapi/bookshelf/info/v:version/?from=page" },
+        { name: "https://fanqienovel.com/api/reader/book/progress?from=page" }
+    ];
     try {
         global.location = { origin: "https://fanqienovel.com", pathname: "/bookshelf" };
-        global.performance = { getEntriesByType: () => [
-            { name: "https://attacker.invalid/reading/bookapi/bookshelf/info/?cookie=" + credentialCanary },
-            { name: "https://fanqienovel.com/reading/bookapi/bookshelf/info/v:version/?from=page" },
-            { name: "https://fanqienovel.com/api/reader/book/progress?from=page" }
-        ] };
+        global.performance = { getEntriesByType: () => resourceEntries };
         global.fetch = async (url, options) => {
             requests.push({ url, options });
             if (url.includes("/bookshelf/info/")) return mockResponse(JSON.stringify(shelfResponse));
@@ -418,6 +432,26 @@ async function rejectedWithoutCanary(promise, pattern) {
         assert.strictEqual(requests.every((request) => request.options.redirect === "error"), true);
         assert.strictEqual(requests.every((request) => request.options.signal.aborted), true);
         assert.match(successAlert, /已导出 1 本书/);
+        assert.match(successAlert, /章节内位置不会导出/);
+
+        resourceEntries = resourceEntries.slice(0, 2);
+        detailResponse = { code: 0, data: { bookList: [Object.assign({}, detail.data.bookList[0], {
+            author: undefined
+        })] } };
+        requests.length = 0;
+        downloadedBlob = undefined;
+        await exporter.run();
+        assert.strictEqual(requests.length, 2, "absent progress request must not be invented");
+        assert.match(successAlert, /1 本未获得作者/);
+        assert.match(successAlert, /未发现官方阅读进度请求/);
+        assert.strictEqual(JSON.parse(await downloadedBlob.text()).books[0].author, undefined);
+        assert.strictEqual(successAlert.includes(credentialCanary), false);
+
+        resourceEntries = [
+            resourceEntries[0], resourceEntries[1],
+            { name: "https://fanqienovel.com/api/reader/book/progress?from=page" }
+        ];
+        detailResponse = detail;
 
         requests.length = 0;
         downloadedBlob = undefined;

@@ -203,6 +203,23 @@
         };
     }
 
+    function exportSummary(output, progressRequestFound) {
+        var missingAuthors = output.books.filter(function (book) { return !book.author; }).length;
+        var missingChapters = output.books.filter(function (book) {
+            return !book.current_chapter_id;
+        }).length;
+        var message = "已导出 " + output.books.length + " 本书。";
+        if (missingAuthors) message += "\n其中 " + missingAuthors + " 本未获得作者。";
+        if (!progressRequestFound) {
+            message += "\n页面未发现官方阅读进度请求，本次没有获取最近阅读章节。";
+        } else if (missingChapters) {
+            message += "\n其中 " + missingChapters + " 本未获得最近阅读章节，可能尚未阅读或官网未提供。";
+        }
+        return message + "\n章节内位置不会导出；这不是完整的阅读进度备份。"
+            + "\n\n文件不包含 Cookie、Token、手机号或登录凭证。请把 "
+            + FILENAME + " 复制到 Kindle，再从 Fanqie Lite 中导入。";
+    }
+
     function officialUrl(value, expectedPath) {
         var parsed;
         try { parsed = new URL(value, OFFICIAL_ORIGIN); }
@@ -377,12 +394,12 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        alert("已导出 " + output.books.length + " 本书。\n\n文件不包含 Cookie、Token、手机号或登录凭证。请把 "
-            + FILENAME + " 复制到 Kindle，再从 Fanqie Lite 中导入。");
+        alert(exportSummary(output, !!progressUrl));
     }
 
     return {
         buildExport: buildExport,
+        exportSummary: exportSummary,
         authorDiagnostics: authorDiagnostics,
         cleanText: cleanText,
         discoverUrl: discoverUrl,
