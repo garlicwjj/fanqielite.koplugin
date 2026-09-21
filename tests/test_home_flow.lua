@@ -90,14 +90,14 @@ local plugin = setmetatable({
 
 plugin:show_home()
 assert(shown and shown.title == "我的本地书架", "home did not open the local bookshelf")
-assert(shown.item_table[1].text == "扫码导入我的番茄书架（尚未开放）",
-    "QR import is not the first onboarding entry")
-assert(shown.item_table[2].text == "搜索或添加一本书（推荐）",
-    "search/add is not the second onboarding entry")
-assert(shown.item_table[3].text == "从文件导入书架",
-    "file import is not the third onboarding entry")
+assert(shown.item_table[1].text == "搜索或添加一本书（推荐）",
+    "search/add is not the first onboarding entry")
+assert(shown.item_table[2].text == "从文件导入书架",
+    "file import is not the second onboarding entry")
+assert(shown.item_table[3].text == "扫码导入我的番茄书架（尚未开放）",
+    "QR import is not the third onboarding entry")
 
-shown.item_table[1].callback()
+shown.item_table[3].callback()
 assert(info_message:find("尚未开放", 1, true), "QR status did not say the feature is unavailable")
 assert(info_message:find("没有发起账号授权", 1, true),
     "QR status did not explain the current account state")
@@ -110,8 +110,8 @@ assert(info_message:find("从文件导入书架", 1, true),
 assert(info_message:find("已有本地书架不受影响", 1, true),
     "QR status did not explain local bookshelf safety")
 
+shown.item_table[1].callback()
 shown.item_table[2].callback()
-shown.item_table[3].callback()
 assert(prompted, "search/add onboarding entry is not wired")
 assert(imported, "file-import onboarding entry is not wired")
 

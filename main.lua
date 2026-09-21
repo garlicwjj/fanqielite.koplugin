@@ -775,14 +775,14 @@ end
 function FanqieLite:show_home()
     local sort_names = { recent = "最近阅读", title = "书名", added = "最近添加" }
     local onboarding = {
-        {
-            text = _("扫码导入我的番茄书架（尚未开放）"),
-            callback = function() self:show_qr_import_status() end,
-        },
         { text = _("搜索或添加一本书（推荐）"), callback = function() self:prompt_book() end },
         {
             text = _("从文件导入书架"),
             callback = function() self:choose_import_file() end,
+        },
+        {
+            text = _("扫码导入我的番茄书架（尚未开放）"),
+            callback = function() self:show_qr_import_status() end,
         },
     }
     local items = {}
@@ -835,9 +835,7 @@ function FanqieLite:show_home()
                 callback = function() self:show_book(book_id) end,
             }
         end
-        items[#items + 1] = onboarding[2]
-        items[#items + 1] = onboarding[3]
-        items[#items + 1] = onboarding[1]
+        for _, item in ipairs(onboarding) do items[#items + 1] = item end
     else
         for _, item in ipairs(onboarding) do items[#items + 1] = item end
         items[#items + 1] = {

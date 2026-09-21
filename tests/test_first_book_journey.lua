@@ -90,12 +90,14 @@ local plugin = setmetatable({
 
 plugin:show_home()
 assert(shown.title == "我的本地书架", "first-use journey did not start at the local bookshelf")
-assert(shown.item_table[1].text:find("尚未开放", 1, true),
+assert(shown.item_table[1].text == "搜索或添加一本书（推荐）",
+    "first-use journey did not lead with the recommended no-login path")
+assert(shown.item_table[2].text == "从文件导入书架",
+    "first-use journey did not expose the available import fallback next")
+assert(shown.item_table[3].text:find("尚未开放", 1, true),
     "first-use journey did not identify the unavailable QR path")
-assert(shown.item_table[2].text == "搜索或添加一本书（推荐）",
-    "first-use journey did not identify the recommended no-login path")
 
-shown.item_table[2].callback()
+shown.item_table[1].callback()
 assert(shown.title == "搜索或添加一本书", "recommended entry did not open the input dialog")
 assert(shown.description:find("推荐粘贴番茄官网书籍链接", 1, true),
     "input dialog did not explain the most reliable path")
