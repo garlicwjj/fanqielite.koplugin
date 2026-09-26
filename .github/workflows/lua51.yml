@@ -40,6 +40,8 @@ jobs:
           node tests/test_compatibility_evidence.js
           node --check tools/compatibility-candidates.js
           node tests/test_compatibility_candidates.js
+          node --check tools/compatibility-page-candidate.js
+          node tests/test_compatibility_page_candidate.js
 
       - name: Check candidate package
         run: |
