@@ -355,4 +355,24 @@ function Library.sorted(library)
     return output
 end
 
+function Library.search(library, input)
+    if type(input) ~= "string" then return nil, "请输入本地书名或作者名" end
+    local query = input:match("^%s*(.-)%s*$")
+    if query == "" then return nil, "请输入本地书名或作者名" end
+    if query:find("[%z\1-\31\127]") then return nil, "查找内容包含控制字符" end
+    if #query > 240 then return nil, "查找内容过长，请缩短书名或作者名" end
+    local needle = query:lower()
+    local matches = {}
+    local books = type(library) == "table" and type(library.books) == "table"
+        and library.books or {}
+    for _, book in ipairs(books) do
+        local title = type(book.title) == "string" and book.title:lower() or ""
+        local author = type(book.author) == "string" and book.author:lower() or ""
+        if title:find(needle, 1, true) or author:find(needle, 1, true) then
+            matches[#matches + 1] = book
+        end
+    end
+    return Library.sorted({ sort = type(library) == "table" and library.sort or "recent", books = matches }), query
+end
+
 return Library

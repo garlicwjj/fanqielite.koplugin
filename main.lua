@@ -48,6 +48,14 @@ local function book_has_progress(book)
             or type(book.imported_progress) == "table")
 end
 
+local function shelf_progress_label(book)
+    if #book.chapters == 0 then return "  [待获取目录]" end
+    if book_has_progress(book) then
+        return "  [" .. tostring(book.current_index) .. "/" .. tostring(#book.chapters) .. "]"
+    end
+    return "  [未开始 · 共 " .. tostring(#book.chapters) .. " 章]"
+end
+
 local function raise_user_error(message, retryable)
     if type(message) ~= "string" or message == "" then
         message = "操作无法安全完成，请返回本地书架后重试。"
@@ -633,6 +641,66 @@ function FanqieLite:show_search_results(query, results)
     })
 end
 
+function FanqieLite:prompt_local_search()
+    local dialog
+    dialog = InputDialog:new{
+        title = _("查找本地书架"),
+        description = _("只查找本机书架中已经保存的书名或作者，不会联网。"),
+        input_hint = _("本地书名或作者名"),
+        buttons = {{
+            { text = _("取消"), callback = function() UIManager:close(dialog) end },
+            { text = _("查找"), is_enter_default = true, callback = function()
+                local value = dialog:getInputText()
+                UIManager:close(dialog)
+                local results, query_or_err = Library.search(self.library, value)
+                if not results then self:info(query_or_err); return end
+                if #results == 0 then
+                    self:show_empty_local_search(query_or_err)
+                    return
+                end
+                self:show_local_search_results(query_or_err, results)
+            end },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function FanqieLite:show_empty_local_search(query)
+    UIManager:show(ConfirmBox:new{
+        text = "本地书架中没有找到“" .. query .. "”。\n\n"
+            .. "本次查找没有联网，书架、阅读进度和缓存没有改变。",
+        cancel_text = _("返回书架"),
+        ok_text = _("重新输入"),
+        ok_callback = function() self:prompt_local_search() end,
+    })
+end
+
+function FanqieLite:show_local_search_results(query, results)
+    local items = {}
+    for _, book in ipairs(results) do
+        local book_id = book.id
+        local author = book.author ~= "" and (" · " .. book.author) or ""
+        items[#items + 1] = {
+            text = book.title .. author .. shelf_progress_label(book),
+            callback = function() self:show_book(book_id) end,
+        }
+    end
+    items[#items + 1] = {
+        text = _("重新查找本地书架"),
+        callback = function() self:prompt_local_search() end,
+    }
+    items[#items + 1] = {
+        text = _("返回我的本地书架"),
+        callback = function() self:show_home() end,
+    }
+    UIManager:show(Menu:new{
+        title = "本地查找：“" .. query .. "”",
+        item_table = items,
+        is_borderless = true,
+    })
+end
+
 function FanqieLite:show_qr_import_status()
     self:info("一次性扫码导入尚未开放。\n\n"
         .. "当前版本没有发起账号授权，也没有请求或保存任何登录信息；"
@@ -848,20 +916,15 @@ function FanqieLite:show_home()
         }
         -- Keep the common add path on the first page even when the shelf grows.
         items[#items + 1] = onboarding[1]
+        items[#items + 1] = {
+            text = _("查找本地书架（不联网）"),
+            callback = function() self:prompt_local_search() end,
+        }
         for _, book in ipairs(Library.sorted(self.library)) do
             local book_id = book.id
             local author = book.author ~= "" and (" · " .. book.author) or ""
-            local progress
-            if #book.chapters == 0 then
-                progress = "  [待获取目录]"
-            elseif book_has_progress(book) then
-                progress = "  [" .. tostring(book.current_index) .. "/"
-                    .. tostring(#book.chapters) .. "]"
-            else
-                progress = "  [未开始 · 共 " .. tostring(#book.chapters) .. " 章]"
-            end
             items[#items + 1] = {
-                text = book.title .. author .. progress,
+                text = book.title .. author .. shelf_progress_label(book),
                 callback = function() self:show_book(book_id) end,
             }
         end
