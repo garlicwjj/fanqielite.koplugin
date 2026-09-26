@@ -846,6 +846,8 @@ function FanqieLite:show_home()
             text = "排序：" .. (sort_names[self.library.sort] or sort_names.recent),
             callback = function() self:cycle_sort() end,
         }
+        -- Keep the common add path on the first page even when the shelf grows.
+        items[#items + 1] = onboarding[1]
         for _, book in ipairs(Library.sorted(self.library)) do
             local book_id = book.id
             local author = book.author ~= "" and (" · " .. book.author) or ""
@@ -857,7 +859,7 @@ function FanqieLite:show_home()
                 callback = function() self:show_book(book_id) end,
             }
         end
-        for _, item in ipairs(onboarding) do items[#items + 1] = item end
+        for index = 2, #onboarding do items[#items + 1] = onboarding[index] end
     else
         for _, item in ipairs(onboarding) do items[#items + 1] = item end
         items[#items + 1] = {

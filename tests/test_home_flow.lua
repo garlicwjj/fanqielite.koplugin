@@ -183,10 +183,11 @@ assert(opened_id == recent_id and opened_index == 1,
     "home previous-chapter action did not retain its rendered target")
 plugin.library.books[2].current_index = 2
 assert(shown.item_table[4].text == "排序：书名", "sort control did not follow reading actions")
-assert(shown.item_table[5].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
-shown.item_table[5].callback()
+assert(shown.item_table[5].text == "搜索或添加一本书（推荐）",
+    "non-empty bookshelf buried its primary add action below the book rows")
+assert(shown.item_table[6].text:find("A 未读书", 1, true), "sorted bookshelf did not follow controls")
+shown.item_table[6].callback()
 assert(selected_id == unread_id, "book row no longer opens its details")
-assert(shown.item_table[7].text == "搜索或添加一本书（推荐）", "visible add action missing below books")
 assert(shown.item_table[8].text == "从文件导入书架", "visible file import missing below books")
 assert(shown.item_table[9].text == "扫码导入我的番茄书架（尚未开放）",
     "visible QR import missing below books")
