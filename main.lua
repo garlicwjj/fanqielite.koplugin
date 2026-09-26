@@ -851,9 +851,15 @@ function FanqieLite:show_home()
         for _, book in ipairs(Library.sorted(self.library)) do
             local book_id = book.id
             local author = book.author ~= "" and (" · " .. book.author) or ""
-            local progress = #book.chapters > 0
-                and ("  [" .. tostring(book.current_index) .. "/" .. tostring(#book.chapters) .. "]")
-                or "  [待获取目录]"
+            local progress
+            if #book.chapters == 0 then
+                progress = "  [待获取目录]"
+            elseif book_has_progress(book) then
+                progress = "  [" .. tostring(book.current_index) .. "/"
+                    .. tostring(#book.chapters) .. "]"
+            else
+                progress = "  [未开始 · 共 " .. tostring(#book.chapters) .. " 章]"
+            end
             items[#items + 1] = {
                 text = book.title .. author .. progress,
                 callback = function() self:show_book(book_id) end,
