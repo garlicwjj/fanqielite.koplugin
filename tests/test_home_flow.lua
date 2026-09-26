@@ -185,14 +185,16 @@ plugin.library.books[2].current_index = 2
 assert(shown.item_table[4].text == "排序：书名", "sort control did not follow reading actions")
 assert(shown.item_table[5].text == "搜索或添加一本书（推荐）",
     "non-empty bookshelf buried its primary add action below the book rows")
-assert(shown.item_table[6].text == "A 未读书  [未开始 · 共 1 章]",
+assert(shown.item_table[6].text == "查找本地书架（不联网）",
+    "non-empty bookshelf did not expose local-only lookup")
+assert(shown.item_table[7].text == "A 未读书  [未开始 · 共 1 章]",
     "unread bookshelf row looked like an existing reading position")
-assert(shown.item_table[7].text:find("[2/3]", 1, true),
+assert(shown.item_table[8].text:find("[2/3]", 1, true),
     "read bookshelf row lost its current chapter progress")
-shown.item_table[6].callback()
+shown.item_table[7].callback()
 assert(selected_id == unread_id, "book row no longer opens its details")
-assert(shown.item_table[8].text == "从文件导入书架", "visible file import missing below books")
-assert(shown.item_table[9].text == "扫码导入我的番茄书架（尚未开放）",
+assert(shown.item_table[9].text == "从文件导入书架", "visible file import missing below books")
+assert(shown.item_table[10].text == "扫码导入我的番茄书架（尚未开放）",
     "visible QR import missing below books")
 
 plugin.library = { version = 1, sort = "recent", books = {{
