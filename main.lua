@@ -794,6 +794,60 @@ function FanqieLite:cycle_sort()
     self:show_home()
 end
 
+function FanqieLite:submit_chapter_jump(book_id, value, expected_count, dialog)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。未打开章节或修改阅读进度；"
+            .. "请返回本地书架确认。")
+        return
+    end
+    local chapter_count = #book.chapters
+    if chapter_count == 0 then
+        self:info("目录已变化，未打开章节或修改阅读进度。"
+            .. "请返回书籍页联网刷新目录。")
+        return
+    end
+    local changed = type(expected_count) == "number" and expected_count ~= chapter_count
+    local text = type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+    local index = text:match("^%d+$") and tonumber(text) or nil
+    if changed or not index or index ~= math.floor(index)
+            or index < 1 or index > chapter_count then
+        local prefix = changed and "目录已变化。" or ""
+        self:info(prefix .. "请输入 1 到 " .. tostring(chapter_count)
+            .. " 之间的整数章节序号；尚未打开章节或修改阅读进度。")
+        return
+    end
+    if dialog then UIManager:close(dialog) end
+    self:open_chapter(book.id, index)
+end
+
+function FanqieLite:prompt_chapter_jump(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。未打开章节或修改阅读进度；"
+            .. "请返回本地书架确认。")
+        return
+    end
+    local chapter_count = #book.chapters
+    if chapter_count == 0 then self:info("目录为空，请联网刷新。"); return end
+    local dialog
+    dialog = InputDialog:new{
+        title = _("跳到指定章节"),
+        description = "请输入 1 到 " .. tostring(chapter_count)
+            .. " 之间的章节序号。确认前不会预先修改阅读进度。",
+        input_hint = _("章节序号"),
+        buttons = {{
+            { text = _("取消"), callback = function() UIManager:close(dialog) end },
+            { text = _("打开"), is_enter_default = true, callback = function()
+                self:submit_chapter_jump(
+                    book.id, dialog:getInputText(), chapter_count, dialog)
+            end },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
 function FanqieLite:show_home()
     local sort_names = { recent = "最近阅读", title = "书名", added = "最近添加" }
     local onboarding = {
@@ -912,6 +966,12 @@ function FanqieLite:show_book(book_id)
     }
     if #book.chapters > 0 then
         items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
+        if #book.chapters > CATALOG_DIRECT_LIMIT then
+            items[#items + 1] = {
+                text = "跳到指定章节（共 " .. tostring(#book.chapters) .. " 章）",
+                callback = function() self:prompt_chapter_jump(book.id) end,
+            }
+        end
         if book.current_index > 1 then
             local previous_index = book.current_index - 1
             items[#items + 1] = {
