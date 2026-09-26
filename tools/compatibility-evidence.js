@@ -399,6 +399,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    BAND_QUOTAS,
     evaluateMatrix,
     parseJsonLines,
     structureFingerprint,
