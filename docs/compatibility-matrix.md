@@ -26,6 +26,18 @@ node tools/compatibility-candidates.js --require-complete private-candidates.jso
 
 每行固定为 `fanqielite-compatibility-candidate` v1，只允许 `observed_at`、与书籍 ID 一致且无查询参数的官方 `/page/<ID>` 地址，以及 `id`、`chapter_count`、`serialization` 和 `category`。其中 `chapter_count` 必须来自同日官方目录经生产目录解析器去重后的实际数量，不能把页面显示的“最新第 N 章”直接当作目录条数；连载状态和分类从官网书籍页核对。不记录书名、作者、简介或正文。工具拒绝重复 ID、少于 3 章、超过插件 10000 章上限、未知连载状态、未知分类、非官网地址和额外字段；完整门禁要求恰好 30 本，并提前核对 5/5/8/7/5 的长度档位、12 本已完结、18 本连载以及男频、女频和出版候选均有覆盖。
 
+为了减少手工抄错，可把同日官方书籍页 HTML 直接通过标准输入交给离线辅助工具，并把生产目录解析器得到的实际章数明确传入：
+
+```sh
+curl --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 1048576 \
+  --fail --silent --show-error -H 'Accept-Encoding: identity' \
+  'https://fanqienovel.com/page/<ID>' \
+  | node tools/compatibility-page-candidate.js YYYY-MM-DD <实际章数> \
+      'https://fanqienovel.com/page/<ID>' >> private-candidates.jsonl
+```
+
+辅助工具自身不联网、不写文件，只读取不超过 1 MB 的标准输入；输出会丢弃书名、作者、简介和正文。它只识别当前官网明确的 `creationStatus`、唯一主分类及“精品小说”分类，并要求页面书籍 ID、页面目录总数、地址和传入的生产解析章数完全一致；遇到未知值或目录正在变化就停止，不能用来猜测分类。原始 HTML 不应保存或提交，真实候选 JSONL 也仍按下述规则仅在本地保管。
+
 候选清单只防止配额选错，不证明公开章节可读、解析正确、分类判断正确或已经完成前中末测试，也不能导入正式证据工具。`observed_at`、连载状态、分类和章节数仍须从采集当天的官方书籍页人工复核；新书/较早作品和版权受限场景仍需单独人工检查。清单可能反映个人取样偏好，完成选择后应作为本地临时材料保管，不提交真实清单到仓库。
 
 ### 固定选章，先生成计划再读取
