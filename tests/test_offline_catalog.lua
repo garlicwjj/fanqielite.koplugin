@@ -66,6 +66,11 @@ local chapter_ids = {
 }
 local inventory_mode = "readable"
 local opened_id, opened_index
+local inventory_tostring_calls = 0
+local inventory_exception = setmetatable({}, { __tostring = function()
+    inventory_tostring_calls = inventory_tostring_calls + 1
+    return "FANQIELITE_CATALOG_EXCEPTION_CANARY"
+end })
 local plugin = setmetatable({
     library = { books = {{
         id = book_id,
@@ -79,6 +84,7 @@ local plugin = setmetatable({
     }} },
     storage = {
         verified_cached_chapter_ids = function()
+            if inventory_mode == "throw" then error(inventory_exception) end
             if inventory_mode == "unreadable" then
                 return nil, nil, "FANQIELITE_CATALOG_ERROR_CANARY"
             end
@@ -118,6 +124,22 @@ assert(shown.item_table[2].text == "第二章  [当前]",
     "unreadable inventory removed the current chapter marker")
 assert(not shown.item_table[1].text:find("可离线", 1, true),
     "unreadable inventory made an unverified offline claim")
+
+inventory_mode = "throw"
+local catalog_call = pcall(plugin.show_catalog, plugin, book_id)
+assert(catalog_call, "unexpected cache inventory exception escaped the catalog")
+assert(shown.title == "目录测试书\n离线缓存状态不可读",
+    "cache inventory exception did not fall back to a fixed catalog summary")
+assert(not shown.title:find("CANARY", 1, true),
+    "catalog exposed an unexpected cache inventory exception")
+assert(inventory_tostring_calls == 0,
+    "catalog stringified an unexpected cache inventory exception")
+assert(shown.item_table[2].text == "第二章  [当前]",
+    "cache inventory exception prevented safe directory browsing")
+opened_id, opened_index = nil, nil
+shown.item_table[3].callback()
+assert(opened_id == book_id and opened_index == 3,
+    "cache inventory exception disabled explicit chapter opening")
 
 local long_chapters = {}
 for index = 1, 10000 do
