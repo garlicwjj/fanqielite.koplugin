@@ -1152,7 +1152,9 @@ function FanqieLite:confirm_clear_cache(book_id)
 end
 
 local function catalog_cache_state(plugin, book)
-    local cached_ids, damaged_ids = plugin.storage:verified_cached_chapter_ids(book.id)
+    local inventory_call, cached_ids, damaged_ids = pcall(
+        plugin.storage.verified_cached_chapter_ids, plugin.storage, book.id)
+    if not inventory_call then cached_ids, damaged_ids = nil, nil end
     local cache_summary = "离线缓存状态不可读"
     if type(cached_ids) == "table" and type(damaged_ids) == "table" then
         local cached_count, damaged_count = 0, 0
