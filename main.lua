@@ -1184,6 +1184,17 @@ local function cache_ahead_summary(downloaded, existing)
     return message
 end
 
+function FanqieLite:show_cache_ahead_result(book_id, message, offer_offline_list)
+    if not offer_offline_list then self:info(message); return end
+    UIManager:show(ConfirmBox:new{
+        text = message,
+        cancel_text = _("返回书籍"),
+        ok_text = _("查看可离线章节"),
+        cancel_callback = function() self:show_book(book_id) end,
+        ok_callback = function() self:show_offline_chapters(book_id) end,
+    })
+end
+
 function FanqieLite:plan_cache_ahead(book_id)
     local book = Library.find(self.library, book_id)
     if not book or #book.chapters == 0 or not book.chapters[book.current_index] then
@@ -1849,8 +1860,8 @@ function FanqieLite:cache_chapters_ahead(book_id, plan, existing)
         local cache_call, cached, cache_err, recoverable = pcall(
             self.storage.cached_chapter, self.storage, book.id, item.id)
         if not cache_call or (cache_err and not recoverable) then
-            self:info(cache_ahead_stop_message(
-                downloaded, skipped, item.index, "cache"))
+            self:show_cache_ahead_result(book.id, cache_ahead_stop_message(
+                downloaded, skipped, item.index, "cache"), downloaded > 0 or skipped > 0)
             return
         end
         if cached then
@@ -1860,15 +1871,17 @@ function FanqieLite:cache_chapters_ahead(book_id, plan, existing)
                 book, item.index,
                 "正在准备离线阅读：第 " .. tostring(item.index) .. " 章……")
             if not xhtml then
-                self:info(cache_ahead_stop_message(
-                    downloaded, skipped, item.index, failure_stage, error_kind))
+                self:show_cache_ahead_result(book.id, cache_ahead_stop_message(
+                    downloaded, skipped, item.index, failure_stage, error_kind),
+                    downloaded > 0 or skipped > 0)
                 return
             end
             local path, write_err, prune_warning, write_stage =
                 self:write_chapter_cache(book, item.index, xhtml)
             if not path then
-                self:info(cache_ahead_stop_message(
-                    downloaded, skipped, item.index, write_stage))
+                self:show_cache_ahead_result(book.id, cache_ahead_stop_message(
+                    downloaded, skipped, item.index, write_stage),
+                    write_stage ~= "uncertain" and (downloaded > 0 or skipped > 0))
                 return
             end
             downloaded = downloaded + 1
@@ -1882,8 +1895,10 @@ function FanqieLite:cache_chapters_ahead(book_id, plan, existing)
             end
         end
     end
-    self:info("离线准备完成：" .. cache_ahead_summary(downloaded, skipped) .. "。\n\n"
-        .. "书架和阅读进度没有改变；每本仍只保留最多 12 个章节缓存。")
+    self:show_cache_ahead_result(book.id,
+        "离线准备完成：" .. cache_ahead_summary(downloaded, skipped) .. "。\n\n"
+            .. "书架和阅读进度没有改变；每本仍只保留最多 12 个章节缓存。",
+        downloaded > 0 or skipped > 0)
 end
 
 function FanqieLite:open_chapter(book_id, index)

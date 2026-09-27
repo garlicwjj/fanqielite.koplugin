@@ -85,6 +85,7 @@ local cached_ids = { [chapters[1].id] = true }
 local cache_mode, prune_warning = "normal", nil
 local cache_canary = "FANQIELITE_CACHE_AHEAD_CACHE_CANARY"
 local writes, save_calls, open_calls = {}, 0, 0
+local result_offline_book_id, result_return_book_id
 local storage = {
     cached_count = function()
         local count = 0
@@ -134,9 +135,18 @@ for index = 1, 5 do
     assert(writes[index] == chapters[index + 1].id,
         "offline preparation did not preserve chapter order or skip existing cache")
 end
-assert(info_message:find("新增 5 章", 1, true)
-        and info_message:find("已存在 1 章", 1, true),
+assert(shown.text:find("新增 5 章", 1, true)
+        and shown.text:find("已存在 1 章", 1, true),
     "offline preparation did not summarize its result")
+assert(shown.ok_text == "查看可离线章节" and shown.cancel_text == "返回书籍",
+    "offline preparation result did not provide both useful next actions")
+local success_result = shown
+plugin.show_offline_chapters = function(_, id) result_offline_book_id = id end
+plugin.show_book = function(_, id) result_return_book_id = id end
+success_result.ok_callback()
+success_result.cancel_callback()
+assert(result_offline_book_id == book_id and result_return_book_id == book_id,
+    "offline preparation result actions lost the current book")
 assert(save_calls == 0 and open_calls == 0 and book.current_index == 1,
     "offline preparation changed reading progress or opened a chapter")
 
@@ -144,12 +154,13 @@ cached_ids, writes, network_calls, fail_at = {}, {}, 0, 3
 plugin:confirm_cache_ahead(book_id)
 shown.ok_callback()
 assert(#writes == 2, "partial network failure did not preserve completed cache writes")
-assert(info_message:find("第 3 章", 1, true)
-        and info_message:find("新增 2 章", 1, true),
+assert(shown.text:find("第 3 章", 1, true)
+        and shown.text:find("新增 2 章", 1, true),
     "partial network failure did not report the exact stopping point")
-assert(not info_message:find(network_canary, 1, true),
+assert(not shown.text:find(network_canary, 1, true),
     "partial network failure exposed an untrusted transport error")
-assert(info_message:find("书架和阅读进度没有改变", 1, true),
+assert(shown.text:find("书架和阅读进度没有改变", 1, true)
+        and shown.ok_text == "查看可离线章节",
     "partial network failure did not explain durable local state")
 
 cached_ids, writes, network_calls, fail_at = {}, {}, 0, nil
