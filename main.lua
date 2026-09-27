@@ -1254,6 +1254,96 @@ function FanqieLite:confirm_cache_ahead(book_id)
     })
 end
 
+function FanqieLite:open_cached_chapter_by_id(book_id, chapter_id)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中；没有联网或修改阅读进度。")
+        return
+    end
+    local index
+    for candidate_index, chapter in ipairs(book.chapters) do
+        if chapter.id == chapter_id then index = candidate_index; break end
+    end
+    if not index then
+        self:info("目录已经变化，原离线章节已不在当前目录中。\n\n"
+            .. "没有联网或修改阅读进度；请返回书籍页刷新离线列表。")
+        return
+    end
+    local cache_call, cached = pcall(
+        self.storage.cached_chapter, self.storage, book.id, chapter_id)
+    if not cache_call or not cached then
+        self:info("这个章节的缓存已经不存在或需要修复，已停止打开。\n\n"
+            .. "本次没有联网，也没有修改阅读进度；"
+            .. "请返回书籍页选择“准备离线阅读”重新保存。")
+        return
+    end
+    local prepared, ready, position_or_err, pending_consumption = pcall(
+        self.prepare_chapter_open, self, book, index, cached)
+    if not prepared then
+        self:info("无法安全准备离线章节，已停止打开。\n\n"
+            .. "缓存没有删除；请返回书籍页重试，若持续出现请重启 KOReader。")
+        return
+    end
+    if not ready then self:info(position_or_err); return end
+    local opened = pcall(
+        self.open_prepared_chapter, self,
+        book, index, cached, position_or_err, pending_consumption)
+    if not opened then
+        self:info("无法安全打开离线章节。\n\n缓存没有删除；"
+            .. "请返回书籍页重试，若持续出现请重启 KOReader。")
+    end
+end
+
+function FanqieLite:show_offline_chapters(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book then self:info("这本书已不在本地书架中"); return end
+    local inventory_call, readable = pcall(
+        self.storage.verified_cached_chapter_ids, self.storage, book.id)
+    if not inventory_call or type(readable) ~= "table" then
+        self:info("无法安全读取离线缓存列表。\n\n"
+            .. "没有联网，也没有修改书架、阅读进度或缓存；"
+            .. "请重启 KOReader 后返回本书重试。")
+        return
+    end
+    local entries = {}
+    for index, chapter in ipairs(book.chapters) do
+        if readable[chapter.id] == true then
+            entries[#entries + 1] = { index = index, id = chapter.id, title = chapter.title }
+            if #entries > 12 then
+                self:info("离线缓存数量异常，已停止显示列表。\n\n"
+                    .. "没有联网或修改任何数据；请返回书籍页清理缓存后重试。")
+                return
+            end
+        end
+    end
+    if #entries == 0 then
+        self:info("本书暂无完整的可离线章节。\n\n"
+            .. "联网打开章节，或在书籍页选择“准备离线阅读（最多 5 章）”。"
+            .. "本次没有联网或修改任何数据。")
+        return
+    end
+    local items = {}
+    for _, entry in ipairs(entries) do
+        local chapter_id, chapter_index = entry.id, entry.index
+        local current = chapter_index == book.current_index and "  [当前]" or ""
+        items[#items + 1] = {
+            text = "第 " .. tostring(chapter_index) .. " 章 · " .. entry.title .. current,
+            callback = function()
+                self:open_cached_chapter_by_id(book.id, chapter_id)
+            end,
+        }
+    end
+    items[#items + 1] = {
+        text = _("返回书籍"),
+        callback = function() self:show_book(book.id) end,
+    }
+    UIManager:show(Menu:new{
+        title = book.title .. "\n可离线章节（" .. tostring(#entries) .. " 章）",
+        item_table = items,
+        is_borderless = true,
+    })
+end
+
 function FanqieLite:show_book(book_id)
     local book = Library.find(self.library, book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
@@ -1310,6 +1400,10 @@ function FanqieLite:show_book(book_id)
                 callback = function() self:open_chapter(book.id, next_index) end,
             }
         end
+        items[#items + 1] = {
+            text = _("查看可离线章节"),
+            callback = function() self:show_offline_chapters(book.id) end,
+        }
         items[#items + 1] = {
             text = _("准备离线阅读（最多 5 章）"),
             callback = function() self:confirm_cache_ahead(book.id) end,
