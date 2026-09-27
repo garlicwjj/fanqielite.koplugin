@@ -678,6 +678,10 @@ function FanqieLite:show_search_results(query, results)
         text = "没有想要的书？重新输入或粘贴官网链接",
         callback = function() self:prompt_book() end,
     }
+    items[#items + 1] = {
+        text = _("返回我的本地书架"),
+        callback = function() self:show_home() end,
+    }
     UIManager:show(Menu:new{
         title = "搜索：“" .. query .. "”",
         item_table = items,
@@ -926,6 +930,10 @@ function FanqieLite:show_sort_menu()
             callback = function() self:set_sort(mode_id) end,
         }
     end
+    items[#items + 1] = {
+        text = _("返回我的本地书架"),
+        callback = function() self:show_home() end,
+    }
     UIManager:show(Menu:new{
         title = _("选择书架排序"), item_table = items, is_borderless = true,
     })
@@ -1397,6 +1405,10 @@ function FanqieLite:show_catalog_range(book_id, start_index, end_index)
     local cached_ids, damaged_ids, cache_summary = catalog_cache_state(self, book)
     local items = catalog_chapter_items(
         self, book, start_index, end_index, cached_ids, damaged_ids)
+    items[#items + 1] = {
+        text = _("返回章节目录"),
+        callback = function() self:show_catalog(book.id) end,
+    }
     local range_text = "第 " .. tostring(start_index) .. "–" .. tostring(end_index) .. " 章"
     local menu = Menu:new{
         title = book.title .. "\n" .. range_text .. "；" .. cache_summary,
@@ -1436,6 +1448,10 @@ function FanqieLite:show_catalog(book_id)
         selected = math.floor((book.current_index - 1) / CATALOG_RANGE_SIZE) + 1
         title = book.title .. "\n共 " .. tostring(#book.chapters) .. " 章；" .. cache_summary
     end
+    items[#items + 1] = {
+        text = _("返回书籍"),
+        callback = function() self:show_book(book.id) end,
+    }
     local menu = Menu:new{
         title = title,
         item_table = items,

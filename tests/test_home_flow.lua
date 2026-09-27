@@ -205,11 +205,17 @@ assert(shown.item_table[10].text == "扫码导入我的番茄书架（尚未开�
 local sort_item = shown.item_table[4]
 sort_item.callback()
 assert(shown.title == "选择书架排序", "sort control did not open a direct choice menu")
-assert(#shown.item_table == 3, "sort menu did not expose all three modes")
+assert(#shown.item_table == 4, "sort menu did not expose all three modes and a return action")
 assert(shown.item_table[1].text == "最近阅读"
         and shown.item_table[2].text == "书名  [当前]"
         and shown.item_table[3].text == "最近添加",
     "sort menu did not mark the current mode clearly")
+assert(shown.item_table[4].text == "返回我的本地书架",
+    "sort menu still depends on a hidden back gesture")
+shown.item_table[4].callback()
+assert(shown.title == "我的本地书架",
+    "sort menu return action did not restore the bookshelf")
+plugin:show_sort_menu()
 shown.item_table[3].callback()
 assert(plugin.library.sort == "added", "direct sort choice did not select recent additions")
 assert(sort_save_calls == 1, "direct sort choice did not persist exactly once")

@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local shown, payload
-local prompted, opened_book, added_book = 0
+local prompted, opened_book, added_book, home_returns = 0, nil, nil, 0
 
 local ConfirmBox = {}
 function ConfirmBox:new(options) return options end
@@ -51,6 +51,7 @@ local plugin = setmetatable({
     library = { books = {{ id = existing_id }} },
     prompt_book = function() prompted = prompted + 1 end,
     show_book = function(_, id) opened_book = id end,
+    show_home = function() home_returns = home_returns + 1 end,
     load_book = function(_, id) added_book = id end,
     with_network = function(_, callback) callback() end,
 }, { __index = FanqieLite })
@@ -73,12 +74,16 @@ payload = { code = 0, data = { search_book_data_list = {
     { book_id = new_id, book_name = "新书", author = "作者" },
 } } }
 plugin:search_books("https://fanqienovel.com/api/search", "测试")
-assert(shown.title == "搜索：“测试”" and #shown.item_table == 3,
-    "search results did not keep both books and a visible refinement entry")
+assert(shown.title == "搜索：“测试”" and #shown.item_table == 4,
+    "search results did not keep both books and visible navigation entries")
 assert(shown.item_table[3].text:find("重新输入", 1, true),
     "search results did not expose a refinement action")
+assert(shown.item_table[4].text == "返回我的本地书架",
+    "search results still depend on a hidden back gesture")
 shown.item_table[3].callback()
 assert(prompted == 2, "result refinement did not reopen the input")
+shown.item_table[4].callback()
+assert(home_returns == 1, "search results did not return to the local bookshelf")
 shown.item_table[1].callback()
 assert(opened_book == existing_id, "existing search result no longer opens its book")
 shown.item_table[2].callback()

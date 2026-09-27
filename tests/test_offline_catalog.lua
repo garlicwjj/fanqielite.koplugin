@@ -65,7 +65,7 @@ local chapter_ids = {
     "7134567890123456703",
 }
 local inventory_mode = "readable"
-local opened_id, opened_index
+local opened_id, opened_index, returned_book_id
 local inventory_tostring_calls = 0
 local inventory_exception = setmetatable({}, { __tostring = function()
     inventory_tostring_calls = inventory_tostring_calls + 1
@@ -94,6 +94,9 @@ local plugin = setmetatable({
     open_chapter = function(_, id, index)
         opened_id, opened_index = id, index
     end,
+    show_book = function(_, id)
+        returned_book_id = id
+    end,
     info = function(_, message)
         info_message = message
     end,
@@ -108,7 +111,13 @@ assert(shown.item_table[2].text == "第二章  [当前]  [缓存需修复]",
     "current corrupt cache state was not visible in the catalog")
 assert(shown.item_table[3].text == "第三章",
     "uncached chapter was incorrectly marked as offline")
+assert(shown.item_table[4].text == "返回书籍",
+    "direct catalog still depends on a hidden back gesture")
 assert(goto_index == 2, "catalog did not open near the current chapter")
+
+shown.item_table[4].callback()
+assert(returned_book_id == book_id,
+    "direct catalog return action did not preserve the current book")
 
 shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 1,
@@ -161,7 +170,7 @@ plugin.storage.verified_cached_chapter_ids = function()
 end
 goto_index = nil
 plugin:show_catalog(long_book_id)
-assert(#shown.item_table == 100,
+assert(#shown.item_table == 101,
     "long catalog eagerly created one menu item per chapter")
 assert(shown.item_table[1].text == "第 1–100 章",
     "long catalog did not start with a clear fixed-size range")
@@ -169,17 +178,25 @@ assert(shown.item_table[56].text == "第 5501–5600 章  [当前]",
     "long catalog did not identify the current chapter range")
 assert(shown.item_table[100].text == "第 9901–10000 章",
     "long catalog did not retain the final range boundary")
+assert(shown.item_table[101].text == "返回书籍",
+    "long catalog still depends on a hidden back gesture")
 assert(goto_index == 56, "long catalog did not open near the current range")
 
 shown.item_table[56].callback()
-assert(#shown.item_table == 100,
+assert(#shown.item_table == 101,
     "long catalog range did not keep chapter menu allocation bounded")
 assert(shown.title:find("第 5501–5600 章", 1, true),
     "long catalog range did not explain its chapter boundary")
 assert(shown.item_table[55].text == "长书第 5555 章  [当前]  [可离线]",
     "long catalog range lost current or offline chapter state")
+assert(shown.item_table[101].text == "返回章节目录",
+    "long catalog range still depends on a hidden back gesture")
 assert(goto_index == 55, "long catalog range did not open near the current chapter")
-shown.item_table[100].callback()
+local long_range_menu = shown
+shown.item_table[101].callback()
+assert(shown.item_table[56].text == "第 5501–5600 章  [当前]",
+    "range return action did not restore the parent catalog")
+long_range_menu.item_table[100].callback()
 assert(opened_id == long_book_id and opened_index == 5600,
     "long catalog range callback did not retain the absolute chapter index")
 local previous_menu = shown
@@ -206,7 +223,8 @@ plugin.library.books[#plugin.library.books + 1] = {
 plugin.storage.verified_cached_chapter_ids = function() return {}, {} end
 goto_index = nil
 plugin:show_catalog(direct_book_id)
-assert(#shown.item_table == 200 and shown.item_table[200].text == "边界第 200 章  [当前]",
+assert(#shown.item_table == 201 and shown.item_table[200].text == "边界第 200 章  [当前]"
+        and shown.item_table[201].text == "返回书籍",
     "catalog changed the direct chapter list at its documented boundary")
 assert(goto_index == 200, "direct catalog boundary did not select the current chapter")
 
@@ -219,13 +237,16 @@ plugin.library.books[#plugin.library.books + 1] = {
 }
 goto_index = nil
 plugin:show_catalog(threshold_book_id)
-assert(#shown.item_table == 3,
+assert(#shown.item_table == 4,
     "catalog did not switch to bounded ranges immediately above the direct limit")
 assert(shown.item_table[3].text == "第 201–201 章  [当前]",
     "catalog lost the final partial range or current marker")
+assert(shown.item_table[4].text == "返回书籍",
+    "segmented catalog omitted its explicit book return action")
 assert(goto_index == 3, "catalog did not select the final partial range")
 shown.item_table[3].callback()
-assert(#shown.item_table == 1 and shown.item_table[1].text == "边界第 201 章  [当前]",
+assert(#shown.item_table == 2 and shown.item_table[1].text == "边界第 201 章  [当前]"
+        and shown.item_table[2].text == "返回章节目录",
     "final partial range did not contain the exact remaining chapter")
 shown.item_table[1].callback()
 assert(opened_id == threshold_book_id and opened_index == 201,
