@@ -117,6 +117,22 @@ shown.item_table[1].callback()
 assert(opened_id == book_id and opened_index == 2,
     "book primary action did not open the current chapter")
 
+local cache_count_tostring_calls = 0
+local original_cached_count = plugin.storage.cached_count
+plugin.storage.cached_count = function()
+    error(setmetatable({}, { __tostring = function()
+        cache_count_tostring_calls = cache_count_tostring_calls + 1
+        return "CACHE_COUNT_SECRET_CANARY"
+    end }))
+end
+local cache_count_contained = pcall(plugin.show_book, plugin, book_id)
+assert(cache_count_contained, "unexpected cache count exception escaped book details")
+assert(shown.item_table[2].text:find("缓存状态不可读", 1, true),
+    "cache count exception did not degrade to an unknown local status")
+assert(cache_count_tostring_calls == 0,
+    "cache count exception invoked its unsafe __tostring method")
+plugin.storage.cached_count = original_cached_count
+
 book.last_opened_at = 100
 plugin:show_book(book_id)
 assert(shown.item_table[1].text == "继续阅读（第 2 章）",

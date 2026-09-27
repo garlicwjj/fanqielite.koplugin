@@ -105,4 +105,38 @@ assert(cleared_book_id == book_id, "confirmed removed-book cache was not cleared
 assert(info_message and info_message:find("已清理 2 个", 1, true),
     "removed-book cache cleanup result missing")
 
+local exception_tostring_calls = 0
+plugin.library.books = {{ id = book_id, title = "异常计数书籍" }}
+plugin.storage.cached_count = function()
+    error(setmetatable({}, { __tostring = function()
+        exception_tostring_calls = exception_tostring_calls + 1
+        return "CACHE_SECRET_CANARY"
+    end }))
+end
+local count_contained = pcall(plugin.confirm_remove, plugin, book_id)
+assert(count_contained and shown and shown.ok_text == "移除",
+    "unexpected cache count exception blocked book removal")
+shown.ok_callback()
+assert(shown.text:find("缓存数量暂时无法读取", 1, true),
+    "post-remove choice did not degrade an unexpected cache count safely")
+assert(exception_tostring_calls == 0,
+    "unexpected cache count exception invoked its unsafe __tostring method")
+
+plugin.storage.clear_book = function()
+    error(setmetatable({}, { __tostring = function()
+        exception_tostring_calls = exception_tostring_calls + 1
+        return "CACHE_SECRET_CANARY"
+    end }))
+end
+local clear_contained = pcall(plugin.clear_removed_book_cache, plugin, book_id)
+assert(clear_contained, "unexpected cache clear exception escaped the removal flow")
+assert(info_message:find("缓存清理意外中断", 1, true)
+        and info_message:find("部分数字 XHTML 可能已经删除", 1, true),
+    "unexpected cache clear did not explain its uncertain partial outcome")
+assert(info_message:find("书架和阅读进度没有改变", 1, true),
+    "unexpected cache clear did not preserve the known data boundary")
+assert(not info_message:find("CACHE_SECRET_CANARY", 1, true)
+        and exception_tostring_calls == 0,
+    "unexpected cache clear exposed or stringified its exception")
+
 print("remove flow tests passed")

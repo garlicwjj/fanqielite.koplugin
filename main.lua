@@ -285,6 +285,20 @@ function FanqieLite:show_cache_prune_warning(reason)
         .. "如果持续出现，请检查 Kindle 剩余空间或只读状态。")
 end
 
+function FanqieLite:safe_cached_count(book_id)
+    local checked, count = pcall(
+        self.storage.cached_count, self.storage, book_id)
+    if not checked then return nil end
+    return count
+end
+
+function FanqieLite:safe_clear_book(book_id)
+    local cleared, count, clear_err = pcall(
+        self.storage.clear_book, self.storage, book_id)
+    if not cleared then return nil, nil, true end
+    return count, clear_err, false
+end
+
 function FanqieLite:book_local_status(book, cached_count, now)
     local chapter_count = type(book.chapters) == "table" and #book.chapters or 0
     local cache_text = cached_count == nil
@@ -1156,7 +1170,7 @@ end
 function FanqieLite:show_book(book_id)
     local book = Library.find(self.library, book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
-    local cached_count = self.storage:cached_count(book.id)
+    local cached_count = self:safe_cached_count(book.id)
     local cache_status = cached_count and (tostring(cached_count) .. " 个") or "状态不可读"
     local items = {}
     if #book.chapters > 0 then
@@ -1237,7 +1251,7 @@ end
 function FanqieLite:confirm_remove(book_id)
     local book = Library.find(self.library, book_id)
     if not book then return end
-    local cached_count = self.storage:cached_count(book_id)
+    local cached_count = self:safe_cached_count(book_id)
     UIManager:show(ConfirmBox:new{
         text = "确定从本地书架移除《" .. book.title .. "》吗？\n\n"
             .. "移除只删除本地书架记录，不会同时删除缓存。"
@@ -1278,7 +1292,14 @@ function FanqieLite:offer_removed_cache_cleanup(book_id, title, cached_count)
 end
 
 function FanqieLite:clear_removed_book_cache(book_id)
-    local count, err = self.storage:clear_book(book_id)
+    local count, err, unexpected = self:safe_clear_book(book_id)
+    if unexpected then
+        self:info("缓存清理意外中断，无法确认所有目标文件的最终状态。\n\n"
+            .. "部分数字 XHTML 可能已经删除；书架和阅读进度没有改变，"
+            .. ".sdr 与未知文件不在清理范围。请重启 KOReader 后重新添加同一本书，"
+            .. "再从书籍页检查或清理缓存。")
+        return
+    end
     if not count then
         self:info("已移除书籍，但缓存清理失败：" .. cache_error_detail(err)
             .. "\n\n其他书籍、缓存和阅读进度没有改变。"
@@ -1301,7 +1322,13 @@ function FanqieLite:confirm_clear_cache(book_id)
         text = "确定清理《" .. book.title .. "》的章节缓存吗？\n\n书籍、目录和阅读进度会保留；离线时将无法打开被清理的章节。",
         ok_text = _("清理"),
         ok_callback = function()
-            local count, err = self.storage:clear_book(book_id)
+            local count, err, unexpected = self:safe_clear_book(book_id)
+            if unexpected then
+                self:info("缓存清理意外中断，无法确认所有目标文件的最终状态。\n\n"
+                    .. "部分数字 XHTML 可能已经删除；书架和阅读进度没有改变，"
+                    .. ".sdr 与未知文件不在清理范围。请重启 KOReader 后返回本书检查缓存。")
+                return
+            end
             if not count then
                 self:info("清理失败：" .. cache_error_detail(err)
                     .. "\n\n书架和阅读进度没有改变。请检查存储空间或只读状态后重试。")
@@ -1545,8 +1572,14 @@ function FanqieLite:open_chapter(book_id, index)
         return
     end
     local chapter = book.chapters[index]
-    local cached, cache_err, recoverable_cache =
-        self.storage:cached_chapter(book.id, chapter.id)
+    local cache_call, cached, cache_err, recoverable_cache = pcall(
+        self.storage.cached_chapter, self.storage, book.id, chapter.id)
+    if not cache_call then
+        self:info("无法安全检查本地缓存，已停止打开章节。\n\n"
+            .. "本地书架、阅读进度和缓存没有改变。"
+            .. "请返回书籍页重试；若持续出现，请重启 KOReader。")
+        return
+    end
     if cached then
         local ready, position_or_err, pending_consumption =
             self:prepare_chapter_open(book, index, cached)
@@ -1584,8 +1617,14 @@ function FanqieLite:open_chapter(book_id, index)
             self:raise_parser_failure("解析章节失败", chapter_err, CHAPTER_PARSE_NEXT)
         end
         parsed.title = chapter.title ~= "" and chapter.title or parsed.title
-        local path, write_err, prune_warning = self.storage:write_chapter(
+        local write_call, path, write_err, prune_warning = pcall(
+            self.storage.write_chapter, self.storage,
             book.id, chapter.id, Parser.to_xhtml(book, parsed))
+        if not write_call then
+            raise_user_error("保存章节时发生意外错误，无法确认章节缓存写入状态。\n\n"
+                .. "书架和阅读进度没有改变；缓存可能已经改变。"
+                .. "请重启 KOReader 后返回书籍页检查；不要把本次操作视为已成功缓存。")
+        end
         if not path then
             raise_user_error(user_error_detail("保存章节失败：", write_err)
                 .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")

@@ -504,6 +504,29 @@ assert(unsafe_cache_failure:find("没有改变", 1, true),
 assert(unsafe_cache_failure:find("重启 KOReader", 1, true),
     "unsafe cache boundary did not provide a recovery action")
 
+local unexpected_cache_network_calls = 0
+local cache_lookup_tostring_before = tostring_calls
+plugin.storage.cached_chapter = function()
+    error(setmetatable({}, { __tostring = function()
+        tostring_calls = tostring_calls + 1
+        return credential_canary
+    end }))
+end
+NetworkTask.get = function()
+    unexpected_cache_network_calls = unexpected_cache_network_calls + 1
+    return nil, "must not fetch"
+end
+local unexpected_cache_contained = pcall(plugin.open_chapter, plugin, "1234567890", 1)
+assert(unexpected_cache_contained, "unexpected cache lookup exception escaped chapter open")
+assert(unexpected_cache_network_calls == 0,
+    "unexpected cache lookup started a network request")
+assert(infos[#infos]:find("无法安全检查本地缓存", 1, true)
+        and infos[#infos]:find("重启 KOReader", 1, true),
+    "unexpected cache lookup did not use the fixed recovery guidance")
+assert(not infos[#infos]:find(credential_canary, 1, true)
+        and tostring_calls == cache_lookup_tostring_before,
+    "unexpected cache lookup exposed or stringified its exception")
+
 local recoverable_loading_label
 plugin.storage.cached_chapter = function()
     return nil, "章节缓存不完整", true
@@ -556,6 +579,26 @@ plugin.prepare_chapter_open = function(_, _, _, _, cache_written, prune_warning)
     post_write_cache_flag = cache_written
     post_write_prune_warning = prune_warning
     return nil, "缓存后准备测试停止"
+end
+local write_tostring_before = tostring_calls
+plugin.storage.write_chapter = function()
+    error(setmetatable({}, { __tostring = function()
+        tostring_calls = tostring_calls + 1
+        return credential_canary
+    end }))
+end
+plugin:open_chapter("1234567890", 1)
+local unexpected_write_failure = infos[#infos]
+assert(unexpected_write_failure:find("无法确认章节缓存写入状态", 1, true),
+    "unexpected cache write did not explain its uncertain outcome")
+assert(unexpected_write_failure:find("书架和阅读进度没有改变", 1, true)
+        and unexpected_write_failure:find("缓存可能已经改变", 1, true),
+    "unexpected cache write did not distinguish certain and uncertain data")
+assert(not unexpected_write_failure:find(credential_canary, 1, true)
+        and tostring_calls == write_tostring_before,
+    "unexpected cache write exposed or stringified its exception")
+plugin.storage.write_chapter = function()
+    return "/safe/10000000001.xhtml", nil, "旧缓存清理失败"
 end
 plugin:open_chapter("1234567890", 1)
 assert(post_write_cache_flag == true,
