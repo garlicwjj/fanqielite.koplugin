@@ -421,6 +421,49 @@ Parser.directory_from_payload = original_directory_from_payload
 Library.upsert = original_library_upsert
 plugin.save_state = original_save_state
 
+local original_fetch_book = plugin.fetch_book
+local refresh_book_record = {
+    id = "1234567890", title = "连载测试", author = "作者",
+    chapters = {
+        { id = "10000000001", title = "第一章" },
+        { id = "10000000002", title = "第二章" },
+    }, current_index = 1,
+}
+plugin.library = { books = { refresh_book_record } }
+plugin.fetch_book = function()
+    return { id = "1234567890", title = "连载测试", author = "作者" }, {
+        { id = "10000000001", title = "第一章" },
+        { id = "10000000002", title = "第二章" },
+        { id = "10000000003", title = "第三章" },
+    }
+end
+Library.upsert = function(library, _, chapters)
+    library.books[1].chapters = chapters
+    return library.books[1]
+end
+plugin.save_state = function() return true end
+plugin:refresh_book("1234567890")
+assert(infos[#infos] == "目录已刷新：新增 1 章，共 3 章",
+    "refresh did not report newly added serial chapters")
+
+plugin:refresh_book("1234567890")
+assert(infos[#infos] == "目录已刷新：暂无新增，共 3 章",
+    "unchanged refresh did not report that there were no new chapters")
+
+plugin.fetch_book = function()
+    return { id = "1234567890", title = "连载测试", author = "作者" }, {
+        { id = "10000000001", title = "第一章" },
+        { id = "10000000003", title = "第三章" },
+        { id = "10000000004", title = "修订章" },
+    }
+end
+plugin:refresh_book("1234567890")
+assert(infos[#infos] == "目录已调整：新增 1 章、移除 1 章，共 3 章",
+    "changed refresh did not distinguish replacement from ordinary additions")
+plugin.fetch_book = original_fetch_book
+Library.upsert = original_library_upsert
+plugin.save_state = original_save_state
+
 NetworkTask.get = function() return "{}" end
 Parser.decode_json = function() return nil, "官方响应格式发生变化" end
 plugin:with_network(function()

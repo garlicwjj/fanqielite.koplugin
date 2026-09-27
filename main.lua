@@ -536,6 +536,14 @@ function FanqieLite:load_book(input)
 end
 
 function FanqieLite:refresh_book(book_id, quiet)
+    local previous = Library.find(self.library, book_id)
+    local previous_ids, previous_order = {}, {}
+    if previous and type(previous.chapters) == "table" then
+        for index, chapter in ipairs(previous.chapters) do
+            previous_ids[chapter.id] = true
+            previous_order[index] = chapter.id
+        end
+    end
     local book, chapters = self:fetch_book(book_id)
     local record, save_err = Library.upsert(self.library, book, chapters)
     if not record then raise_user_error(save_err) end
@@ -543,7 +551,29 @@ function FanqieLite:refresh_book(book_id, quiet)
     local saved, state_err = self:save_state()
     if not saved then raise_user_error(state_err) end
     if not quiet then
-        self:info("目录已刷新，共 " .. tostring(#record.chapters) .. " 章", 3)
+        local current_ids, added, removed = {}, 0, 0
+        local reordered = false
+        for index, chapter in ipairs(record.chapters) do
+            current_ids[chapter.id] = true
+            if not previous_ids[chapter.id] then added = added + 1 end
+            if previous_order[index] ~= chapter.id then reordered = true end
+        end
+        for chapter_id in pairs(previous_ids) do
+            if not current_ids[chapter_id] then removed = removed + 1 end
+        end
+        local total = tostring(#record.chapters)
+        local message
+        if added > 0 and removed == 0 then
+            message = "目录已刷新：新增 " .. tostring(added) .. " 章，共 " .. total .. " 章"
+        elseif added == 0 and removed == 0 and not reordered then
+            message = "目录已刷新：暂无新增，共 " .. total .. " 章"
+        elseif added == 0 and removed == 0 then
+            message = "目录顺序已调整，共 " .. total .. " 章"
+        else
+            message = "目录已调整：新增 " .. tostring(added) .. " 章、移除 "
+                .. tostring(removed) .. " 章，共 " .. total .. " 章"
+        end
+        self:info(message, 3)
     end
     return record
 end
