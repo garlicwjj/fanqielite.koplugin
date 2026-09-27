@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const MAX_HTML_BYTES = 1024 * 1024;
+const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const ID_PATTERN = /^\d{10,64}$/;
 const INITIAL_STATE_MARKER = "window.__INITIAL_STATE__=";
 
@@ -27,7 +27,7 @@ function sourceBookId(sourceUrl) {
 
 function initialStateJson(html) {
     if (typeof html !== "string") fail("官网页面输入必须是文本");
-    if (Buffer.byteLength(html, "utf8") > MAX_HTML_BYTES) fail("官网页面输入超过 1 MB");
+    if (Buffer.byteLength(html, "utf8") > MAX_HTML_BYTES) fail("官网页面输入超过 2 MB");
     const markerAt = html.indexOf(INITIAL_STATE_MARKER);
     if (markerAt < 0) fail("官网页面没有可识别的初始状态");
     const start = html.indexOf("{", markerAt + INITIAL_STATE_MARKER.length);
@@ -139,7 +139,7 @@ if (require.main === module) {
     process.stdin.on("data", (chunk) => {
         bytes += chunk.length;
         if (bytes > MAX_HTML_BYTES) {
-            process.stderr.write("compatibility page candidate error: 官网页面输入超过 1 MB\n");
+            process.stderr.write("compatibility page candidate error: 官网页面输入超过 2 MB\n");
             process.exit(1);
         }
         chunks.push(chunk);

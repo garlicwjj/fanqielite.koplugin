@@ -93,9 +93,13 @@ assert.throws(() => pageCandidate.buildCandidate(`<script>window.__INITIAL_STATE
     assert.strictEqual(error.message.includes(CANARY), false);
     return /初始状态不完整/.test(error.message);
 });
-assert.throws(() => pageCandidate.buildCandidate("x".repeat(1024 * 1024 + 1), {
+const observedLargePage = `${html()}${"x".repeat(1300000)}`;
+assert.strictEqual(pageCandidate.buildCandidate(observedLargePage, {
     observedAt: "2026-09-26", chapterCount: 275, sourceUrl: SOURCE_URL,
-}), /超过 1 MB/);
+}).book.id, BOOK_ID);
+assert.throws(() => pageCandidate.buildCandidate("x".repeat(2 * 1024 * 1024 + 1), {
+    observedAt: "2026-09-26", chapterCount: 275, sourceUrl: SOURCE_URL,
+}), /超过 2 MB/);
 
 assert.deepStrictEqual(pageCandidate.parseArguments(["2026-09-26", "275", SOURCE_URL]), {
     observedAt: "2026-09-26", chapterCount: 275, sourceUrl: SOURCE_URL,

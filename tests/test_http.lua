@@ -160,14 +160,23 @@ assert(empty == nil)
 contains(empty_err, "返回空内容", "empty response message")
 contains(empty_err, "本地数据未改变", "empty response safety message")
 
+local observed_large_body = string.rep("x", 1300000)
 handler = function(request)
-    local ok, err = request.sink(string.rep("x", 1024 * 1024 + 1))
+    assert(request.sink(observed_large_body) == 1)
+    return 1, 200, { ["content-length"] = tostring(#observed_large_body) }, "OK"
+end
+local accepted_large = assert(Http.get("https://fanqienovel.com/page/1234567890"))
+assert(#accepted_large == #observed_large_body,
+    "observed 1.3 MB official page size was rejected")
+
+handler = function(request)
+    local ok, err = request.sink(string.rep("x", 2 * 1024 * 1024 + 1))
     assert(ok == nil and err == "response too large")
     return nil, err
 end
 local oversized, oversized_err, oversized_kind = Http.get("https://fanqienovel.com/page/1234567890")
 assert(oversized == nil)
-contains(oversized_err, "1 MB", "size limit message")
+contains(oversized_err, "2 MB", "size limit message")
 contains(oversized_err, "本地数据未改变", "safe failure message")
 assert(oversized_kind == nil, "oversized response must not offer immediate retry")
 
@@ -226,7 +235,7 @@ local crashed, certificate_err, certificate_kind = Http.get("https://fanqienovel
 assert(crashed == nil)
 contains(certificate_err, "证书验证失败", "certificate message")
 assert(certificate_kind == nil, "certificate failure must require corrective action before retry")
-assert(reset_calls == 19, "timeout must reset after every attempted request")
+assert(reset_calls == 20, "timeout must reset after every attempted request")
 
 local credential_canary = "COOKIE_SESSION_TOKEN_CANARY_4d91"
 handler = function() return nil, "raw socket failure " .. credential_canary end
@@ -235,7 +244,7 @@ assert(transport_failed == nil)
 contains(transport_err, "无法连接番茄官方服务", "generic transport message")
 assert(not transport_err:find(credential_canary, 1, true), "raw transport error leaked")
 assert(transport_kind == "retryable", "generic transport failure should offer an explicit retry")
-assert(reset_calls == 20, "timeout must reset after raw transport failure")
+assert(reset_calls == 21, "timeout must reset after raw transport failure")
 
 local transport_tostring_calls = 0
 handler = function()
@@ -249,7 +258,7 @@ assert(object_failed == nil)
 contains(object_err, "无法连接番茄官方服务", "object transport message")
 assert(not object_err:find(credential_canary, 1, true), "transport error object leaked")
 assert(transport_tostring_calls == 0, "transport error object invoked __tostring")
-assert(reset_calls == 21, "timeout must reset after object transport failure")
+assert(reset_calls == 22, "timeout must reset after object transport failure")
 
 timeout_mode = "set_throw"
 local timeout_canary = "FANQIELITE_TIMEOUT_ERROR_CANARY_91a7"

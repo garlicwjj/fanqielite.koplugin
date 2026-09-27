@@ -6,7 +6,7 @@ Parser.MAX_DIRECTORY_CHAPTERS = 10000
 Parser.MAX_DIRECTORY_VOLUMES = 1000
 local BOOK_INPUT_ERROR = "请输入番茄小说官方书籍链接或书籍 ID"
 local MAX_BOOK_INPUT_BYTES = 2048
-local MAX_PAGE_BYTES = 1024 * 1024
+local MAX_PAGE_BYTES = 2 * 1024 * 1024
 local DIRECTORY_CHAPTER_LIMIT_ERROR = "目录章节数量超过 10000 章安全上限，已停止更新"
 local DIRECTORY_VOLUME_LIMIT_ERROR = "目录卷数量超过 1000 个安全上限，已停止更新"
 
@@ -137,7 +137,7 @@ function Parser.extract_initial_state(html)
         return nil, "官方页面格式无效，已拒绝解析；本地数据未改变"
     end
     if #html > MAX_PAGE_BYTES then
-        return nil, "官方页面超过 1 MB 安全限制，已拒绝解析；本地数据未改变"
+        return nil, "官方页面超过 2 MB 安全限制，已拒绝解析；本地数据未改变"
     end
     local marker = "window.__INITIAL_STATE__="
     local marker_start = html:find(marker, 1, true)

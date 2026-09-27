@@ -5,7 +5,7 @@ local VerifiedTLS = require("fanqielite.verified_tls")
 local Http = {}
 
 local USER_AGENT = "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-local MAX_BYTES = 1024 * 1024
+local MAX_BYTES = 2 * 1024 * 1024
 local BLOCK_TIMEOUT = 10
 local TOTAL_TIMEOUT = 20
 local TIMEOUT_SETUP_ERROR = "无法安全配置网络超时，已停止请求；"
@@ -31,7 +31,7 @@ local function request_error(value)
             "retryable"
     end
     if value == "response too large" then
-        return "官方响应超过 1 MB 安全限制，已停止读取；本地数据未改变"
+        return "官方响应超过 2 MB 安全限制，已停止读取；本地数据未改变"
     end
     if value == "timeout" or value == "sink timeout" or value == "wantread" then
         return "网络连接超时，请检查 Kindle 的 Wi-Fi 和系统时间后重试；本地数据未改变",

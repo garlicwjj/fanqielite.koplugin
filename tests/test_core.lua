@@ -54,10 +54,16 @@ equal(page_tostring_calls, 0, "page object invoked __tostring")
 assert(type(object_page_err) == "string" and not object_page_err:find(page_canary, 1, true),
     "object page error exposed the canary")
 
+local observed_large_page = [[window.__INITIAL_STATE__={"page":{"bookId":"1234567890"}};]]
+    .. string.rep("x", 1300000)
+local observed_large_state = assert(Parser.extract_initial_state(observed_large_page))
+assert(observed_large_state:find('"bookId":"1234567890"', 1, true),
+    "observed 1.3 MB official page size was rejected")
+
 local oversized_page, oversized_page_err =
-    Parser.extract_initial_state(string.rep("x", 1024 * 1024 + 1))
+    Parser.extract_initial_state(string.rep("x", 2 * 1024 * 1024 + 1))
 equal(oversized_page, nil, "oversized page accepted for INITIAL_STATE extraction")
-assert(oversized_page_err:find("1 MB", 1, true), "oversized page error missing limit")
+assert(oversized_page_err:find("2 MB", 1, true), "oversized page error missing limit")
 assert(oversized_page_err:find("本地数据未改变", 1, true),
     "oversized page error missing data safety statement")
 
