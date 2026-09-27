@@ -941,6 +941,110 @@ function FanqieLite:prompt_chapter_jump(book_id)
     dialog:onShowKeyboard()
 end
 
+function FanqieLite:open_chapter_by_id(book_id, chapter_id)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。未打开章节或修改阅读进度；"
+            .. "请返回本地书架确认。")
+        return
+    end
+    for index, chapter in ipairs(book.chapters) do
+        if chapter.id == chapter_id then
+            self:open_chapter(book.id, index)
+            return
+        end
+    end
+    self:info("目录已经变化，原查找结果中的章节已不存在。"
+        .. "未打开其他章节或修改阅读进度；请重新查找或刷新目录。")
+end
+
+function FanqieLite:show_empty_chapter_search(book_id, query)
+    UIManager:show(ConfirmBox:new{
+        text = "本地目录中没有找到标题包含“" .. query .. "”的章节。\n\n"
+            .. "本次查找没有联网，书架、阅读进度和缓存没有改变。",
+        cancel_text = _("返回书籍"),
+        ok_text = _("重新输入"),
+        cancel_callback = function() self:show_book(book_id) end,
+        ok_callback = function() self:prompt_chapter_search(book_id) end,
+    })
+end
+
+function FanqieLite:show_chapter_search_results(book_id, query, matches, truncated)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。查找结果没有打开；请返回本地书架确认。")
+        return
+    end
+    local current = book.chapters[book.current_index]
+    local items = {}
+    for _, match in ipairs(matches) do
+        local chapter_id = match.chapter.id
+        local status = current and current.id == chapter_id and "  [当前]" or ""
+        items[#items + 1] = {
+            text = "第 " .. tostring(match.index) .. " 章 · " .. match.chapter.title .. status,
+            callback = function() self:open_chapter_by_id(book.id, chapter_id) end,
+        }
+    end
+    if truncated then
+        items[#items + 1] = {
+            text = _("匹配超过 100 章，请缩小关键词重新查找"),
+            callback = function() self:prompt_chapter_search(book.id) end,
+        }
+    end
+    items[#items + 1] = {
+        text = _("重新查找章节"),
+        callback = function() self:prompt_chapter_search(book.id) end,
+    }
+    items[#items + 1] = {
+        text = _("返回书籍页面"),
+        callback = function() self:show_book(book.id) end,
+    }
+    UIManager:show(Menu:new{
+        title = "章节查找：“" .. query .. "”",
+        item_table = items,
+        is_borderless = true,
+    })
+end
+
+function FanqieLite:submit_chapter_search(book_id, value, dialog)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。未查找或修改任何数据。")
+        return
+    end
+    local matches, query_or_err, truncated = Library.search_chapters(book, value, 100)
+    if not matches then self:info(query_or_err); return end
+    if dialog then UIManager:close(dialog) end
+    if #matches == 0 then
+        self:show_empty_chapter_search(book.id, query_or_err)
+        return
+    end
+    self:show_chapter_search_results(book.id, query_or_err, matches, truncated)
+end
+
+function FanqieLite:prompt_chapter_search(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book then
+        self:info("这本书已不在本地书架中。未查找或修改任何数据。")
+        return
+    end
+    if #book.chapters == 0 then self:info("目录为空，请先联网获取目录。"); return end
+    local dialog
+    dialog = InputDialog:new{
+        title = _("查找章节"),
+        description = _("只查找本机已保存的章节标题，不会联网或修改阅读进度。"),
+        input_hint = _("章节标题关键词"),
+        buttons = {{
+            { text = _("取消"), callback = function() UIManager:close(dialog) end },
+            { text = _("查找"), is_enter_default = true, callback = function()
+                self:submit_chapter_search(book.id, dialog:getInputText(), dialog)
+            end },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
 function FanqieLite:show_home()
     local sort_names = { recent = "最近阅读", title = "书名", added = "最近添加" }
     local onboarding = {
@@ -1051,6 +1155,10 @@ function FanqieLite:show_book(book_id)
     }
     if #book.chapters > 0 then
         items[#items + 1] = { text = _("章节目录"), callback = function() self:show_catalog(book.id) end }
+        items[#items + 1] = {
+            text = _("查找章节（不联网）"),
+            callback = function() self:prompt_chapter_search(book.id) end,
+        }
         if #book.chapters > CATALOG_DIRECT_LIMIT then
             items[#items + 1] = {
                 text = "跳到指定章节（共 " .. tostring(#book.chapters) .. " 章）",

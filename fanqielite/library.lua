@@ -375,4 +375,29 @@ function Library.search(library, input)
     return Library.sorted({ sort = type(library) == "table" and library.sort or "recent", books = matches }), query
 end
 
+function Library.search_chapters(book, input, limit)
+    if type(input) ~= "string" then return nil, "请输入章节标题关键词" end
+    local query = input:match("^%s*(.-)%s*$")
+    if query == "" then return nil, "请输入章节标题关键词" end
+    if query:find("[%z\1-\31\127]") then return nil, "章节关键词包含控制字符" end
+    if #query > 240 then return nil, "章节关键词过长，请缩短后重试" end
+    limit = tonumber(limit) or 100
+    limit = math.floor(limit)
+    if limit < 1 then limit = 1 elseif limit > 100 then limit = 100 end
+
+    local needle = query:lower()
+    local matches = {}
+    local chapters = type(book) == "table" and type(book.chapters) == "table"
+        and book.chapters or {}
+    for index, chapter in ipairs(chapters) do
+        local title = type(chapter) == "table" and type(chapter.title) == "string"
+            and chapter.title or ""
+        if title:lower():find(needle, 1, true) then
+            if #matches >= limit then return matches, query, true end
+            matches[#matches + 1] = { chapter = chapter, index = index }
+        end
+    end
+    return matches, query, false
+end
+
 return Library

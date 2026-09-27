@@ -99,15 +99,17 @@ assert(shown.item_table[1].text == "开始阅读（第 2 章）",
 assert(shown.item_table[2].text:find("本地状态：目录 3 章", 1, true),
     "local status did not immediately follow the primary action")
 assert(shown.item_table[3].text == "章节目录", "chapter actions changed order")
-assert(shown.item_table[4].text == "上一章（第 1 章）"
-        and shown.item_table[5].text == "下一章（第 3 章）",
+assert(shown.item_table[4].text == "查找章节（不联网）",
+    "book details did not place chapter search beside the catalog")
+assert(shown.item_table[5].text == "上一章（第 1 章）"
+        and shown.item_table[6].text == "下一章（第 3 章）",
     "middle chapter did not expose both valid adjacent actions")
 book.current_index = 3
-shown.item_table[4].callback()
+shown.item_table[5].callback()
 assert(opened_id == book_id and opened_index == 1,
     "book previous action did not retain its rendered target chapter")
 book.current_index = 1
-shown.item_table[5].callback()
+shown.item_table[6].callback()
 assert(opened_id == book_id and opened_index == 3,
     "book next action did not retain its rendered target chapter")
 book.current_index = 2
