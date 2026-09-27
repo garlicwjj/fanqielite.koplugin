@@ -850,16 +850,41 @@ function FanqieLite:show_settings()
                     .. "其他书籍或其他插件。")
             end,
         },
+        {
+            text = _("返回我的本地书架"),
+            callback = function() self:show_home() end,
+        },
     }
     UIManager:show(Menu:new{ title = _("设置与数据"), item_table = items, is_borderless = true })
 end
 
-function FanqieLite:cycle_sort()
-    local next_mode = { recent = "title", title = "added", added = "recent" }
-    self.library.sort = next_mode[self.library.sort] or "recent"
+function FanqieLite:set_sort(mode)
+    local allowed = { recent = true, title = true, added = true }
+    if not allowed[mode] then return end
+    if self.library.sort == mode then self:show_home(); return end
+    self.library.sort = mode
     local saved, save_err = self:save_state()
     if not saved then self:info(save_err); return end
     self:show_home()
+end
+
+function FanqieLite:show_sort_menu()
+    local modes = {
+        { id = "recent", text = _("最近阅读") },
+        { id = "title", text = _("书名") },
+        { id = "added", text = _("最近添加") },
+    }
+    local items = {}
+    for _, mode in ipairs(modes) do
+        local mode_id = mode.id
+        items[#items + 1] = {
+            text = mode.text .. (self.library.sort == mode_id and "  [当前]" or ""),
+            callback = function() self:set_sort(mode_id) end,
+        }
+    end
+    UIManager:show(Menu:new{
+        title = _("选择书架排序"), item_table = items, is_borderless = true,
+    })
 end
 
 function FanqieLite:submit_chapter_jump(book_id, value, expected_count, dialog)
@@ -966,7 +991,7 @@ function FanqieLite:show_home()
         end
         items[#items + 1] = {
             text = "排序：" .. (sort_names[self.library.sort] or sort_names.recent),
-            callback = function() self:cycle_sort() end,
+            callback = function() self:show_sort_menu() end,
         }
         -- Keep the common add path on the first page even when the shelf grows.
         items[#items + 1] = onboarding[1]
@@ -1062,6 +1087,9 @@ function FanqieLite:show_book(book_id)
             callback = function() self:confirm_clear_cache(book.id) end,
     }
     items[#items + 1] = { text = _("从本地书架移除"), callback = function() self:confirm_remove(book.id) end }
+    items[#items + 1] = {
+        text = _("返回我的本地书架"), callback = function() self:show_home() end,
+    }
     UIManager:show(Menu:new{
         title = book.title .. (book.author ~= "" and ("\n" .. book.author) or ""),
         item_table = items, is_borderless = true,

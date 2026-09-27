@@ -77,12 +77,17 @@ end
 local FanqieLite = assert(loadfile("main.lua"))()
 local info_message
 local prompted, imported = false, false
+local sort_save_calls = 0
 local loaded_book_id, searched_query
 local plugin = setmetatable({
     library = { version = 1, sort = "recent", books = {} },
     info = function(_, message) info_message = message end,
     prompt_book = function() prompted = true end,
     choose_import_file = function() imported = true end,
+    save_state = function()
+        sort_save_calls = sort_save_calls + 1
+        return true
+    end,
     with_network = function(_, callback) callback() end,
     load_book = function(_, book_id) loaded_book_id = book_id end,
     search_books = function(_, _, query) searched_query = query end,
@@ -197,6 +202,19 @@ assert(shown.item_table[9].text == "从文件导入书架", "visible file import
 assert(shown.item_table[10].text == "扫码导入我的番茄书架（尚未开放）",
     "visible QR import missing below books")
 
+local sort_item = shown.item_table[4]
+sort_item.callback()
+assert(shown.title == "选择书架排序", "sort control did not open a direct choice menu")
+assert(#shown.item_table == 3, "sort menu did not expose all three modes")
+assert(shown.item_table[1].text == "最近阅读"
+        and shown.item_table[2].text == "书名  [当前]"
+        and shown.item_table[3].text == "最近添加",
+    "sort menu did not mark the current mode clearly")
+shown.item_table[3].callback()
+assert(plugin.library.sort == "added", "direct sort choice did not select recent additions")
+assert(sort_save_calls == 1, "direct sort choice did not persist exactly once")
+assert(shown.title == "我的本地书架", "sort choice did not return to the bookshelf")
+
 plugin.library = { version = 1, sort = "recent", books = {{
     id = unread_id, title = "尚未开始", author = "", chapters = {
         { id = "7134567890123456701", title = "第一章" },
@@ -253,6 +271,7 @@ assert(shown and shown.title == "设置与数据", "settings menu did not open")
 local expected_settings = {
     "从文件导入书架", "导出本地书架", "缓存管理说明",
     "可选手势快捷操作", "隐私与使用边界", "完全卸载与安全回退",
+    "返回我的本地书架",
 }
 for index, expected in ipairs(expected_settings) do
     assert(shown.item_table[index] and shown.item_table[index].text == expected,
@@ -285,5 +304,10 @@ assert(info_message:find("离线章节和对应的 .sdr 阅读位置", 1, true),
     "uninstall notice hid cache and sidecar data loss")
 assert(info_message:find("本地书架、目录和阅读进度", 1, true),
     "uninstall notice hid settings data loss")
+
+local returned_to_shelf = false
+plugin.show_home = function() returned_to_shelf = true end
+shown.item_table[7].callback()
+assert(returned_to_shelf, "settings did not provide a visible return to the bookshelf")
 
 print("home flow tests passed")

@@ -144,6 +144,14 @@ local function has_item_prefix(prefix)
     return false
 end
 
+local returned_to_shelf = false
+plugin.show_home = function() returned_to_shelf = true end
+local return_item = assert(find_item("返回我的本地书架"),
+    "book details did not provide a visible return to the bookshelf")
+return_item.callback()
+assert(returned_to_shelf, "book details return action did not open the bookshelf")
+plugin.show_home = FanqieLite.show_home
+
 local refresh_item = assert(find_item("刷新书籍信息与目录"),
     "book details did not expose the directory refresh action")
 local refreshed_id, reopened_id
