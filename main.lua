@@ -40,6 +40,7 @@ local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录�
 local NETWORK_WAIT_TIMEOUT_SECONDS = 50
 local CATALOG_DIRECT_LIMIT = 200
 local CATALOG_RANGE_SIZE = 100
+local CACHE_AHEAD_LIMIT = 5
 local user_error_messages = setmetatable({}, { __mode = "k" })
 
 local function book_has_progress(book)
@@ -1175,6 +1176,84 @@ function FanqieLite:show_home()
     UIManager:show(Menu:new{ title = _("我的本地书架"), item_table = items, is_borderless = true })
 end
 
+local function cache_ahead_summary(downloaded, existing)
+    local message = "本轮新增 " .. tostring(downloaded) .. " 章"
+    if existing > 0 then
+        message = message .. "，已存在 " .. tostring(existing) .. " 章"
+    end
+    return message
+end
+
+function FanqieLite:plan_cache_ahead(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book or #book.chapters == 0 or not book.chapters[book.current_index] then
+        return nil, nil, "书籍或目录已经变化，请返回书籍页确认"
+    end
+    local plan, existing = {}, 0
+    for index = book.current_index, #book.chapters do
+        local chapter = book.chapters[index]
+        local checked, cached, cache_err, recoverable = pcall(
+            self.storage.cached_chapter, self.storage, book.id, chapter.id)
+        if not checked or (cache_err and not recoverable) then
+            return nil, nil, "无法安全检查本地缓存，请重启 KOReader 后返回书籍页重试"
+        end
+        if cached then
+            existing = existing + 1
+        else
+            plan[#plan + 1] = { index = index, id = chapter.id }
+            if #plan >= CACHE_AHEAD_LIMIT then break end
+        end
+    end
+    return plan, existing
+end
+
+function FanqieLite:cache_ahead_plan_is_current(book_id, plan)
+    local book = Library.find(self.library, book_id)
+    if not book or type(plan) ~= "table" or #plan < 1 or #plan > CACHE_AHEAD_LIMIT then
+        return nil
+    end
+    for _, item in ipairs(plan) do
+        local chapter = type(item) == "table" and book.chapters[item.index] or nil
+        if not chapter or chapter.id ~= item.id then return nil end
+    end
+    return book
+end
+
+function FanqieLite:confirm_cache_ahead(book_id)
+    local book = Library.find(self.library, book_id)
+    if not book then self:info("这本书已不在本地书架中"); return end
+    local plan, existing, plan_err = self:plan_cache_ahead(book.id)
+    if not plan then
+        self:info(plan_err .. "。\n\n书架、阅读进度和缓存没有改变。")
+        return
+    end
+    if #plan == 0 then
+        self:info("从当前章节到书末的章节已经可以离线阅读，无需连接 Wi-Fi。\n\n"
+            .. "本次没有修改书架、阅读进度或缓存。")
+        return
+    end
+    local first, last = plan[1].index, plan[#plan].index
+    UIManager:show(ConfirmBox:new{
+        text = "将从当前第 " .. tostring(book.current_index) .. " 章开始，联网保存 "
+            .. tostring(#plan) .. " 个尚未缓存章节（位于第 " .. tostring(first)
+            .. "–" .. tostring(last) .. " 章之间），用于离线阅读。\n\n"
+            .. "不会打开正文或改变当前章节。每本最多保留 12 个章节缓存，"
+            .. "较早缓存可能自动清理；不下载整本书。",
+        cancel_text = _("取消"),
+        ok_text = _("开始缓存"),
+        ok_callback = function()
+            if not self:cache_ahead_plan_is_current(book.id, plan) then
+                self:info("目录已经变化，旧的离线准备计划已取消。\n\n"
+                    .. "没有发起章节请求；请返回书籍页重新选择。")
+                return
+            end
+            self:with_network(function()
+                self:cache_chapters_ahead(book.id, plan, existing)
+            end)
+        end,
+    })
+end
+
 function FanqieLite:show_book(book_id)
     local book = Library.find(self.library, book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
@@ -1231,6 +1310,10 @@ function FanqieLite:show_book(book_id)
                 callback = function() self:open_chapter(book.id, next_index) end,
             }
         end
+        items[#items + 1] = {
+            text = _("准备离线阅读（最多 5 章）"),
+            callback = function() self:confirm_cache_ahead(book.id) end,
+        }
     end
     if #book.chapters > 0 then
         items[#items + 1] = {
@@ -1580,6 +1663,135 @@ function FanqieLite:open_prepared_chapter(
     return self:open_file(path, after_open_callback)
 end
 
+function FanqieLite:fetch_chapter_xhtml(book, index, loading_label)
+    local chapter = type(book) == "table" and type(book.chapters) == "table"
+        and book.chapters[index] or nil
+    if not chapter then
+        return nil, "目录已经变化", nil, "catalog"
+    end
+    local html, fetch_err, fetch_error_kind = NetworkTask.get(
+        BASE .. "/reader/" .. chapter.id, nil, loading_label)
+    if not html then
+        return nil, user_error_detail("读取章节失败：", fetch_err),
+            fetch_error_kind, "network"
+    end
+    local json_text, state_err = Parser.extract_initial_state(html)
+    if not json_text then
+        return nil, self:parser_failure_message(
+            "解析章节失败", state_err, CHAPTER_PARSE_NEXT), nil, "parser"
+    end
+    local state, decode_err = Parser.decode_json(json_text)
+    if not state then
+        return nil, self:parser_failure_message(
+            "解析章节失败", decode_err, CHAPTER_PARSE_NEXT), nil, "parser"
+    end
+    local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
+    if not parsed then
+        return nil, self:parser_failure_message(
+            "解析章节失败", chapter_err, CHAPTER_PARSE_NEXT), nil, "parser"
+    end
+    parsed.title = chapter.title ~= "" and chapter.title or parsed.title
+    local converted, xhtml = pcall(Parser.to_xhtml, book, parsed)
+    if not converted or type(xhtml) ~= "string" or xhtml == "" then
+        return nil, "无法安全生成章节文件；本地数据未改变", nil, "parser"
+    end
+    return xhtml
+end
+
+function FanqieLite:write_chapter_cache(book, index, xhtml)
+    local chapter = type(book) == "table" and type(book.chapters) == "table"
+        and book.chapters[index] or nil
+    if not chapter then return nil, "目录已经变化", nil, "catalog" end
+    local write_call, path, write_err, prune_warning = pcall(
+        self.storage.write_chapter, self.storage,
+        book.id, chapter.id, xhtml)
+    if not write_call then
+        return nil, "保存章节时发生意外错误，无法确认章节缓存写入状态", nil, "uncertain"
+    end
+    if not path then
+        return nil, user_error_detail("保存章节失败：", write_err)
+            .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。",
+            nil, "write"
+    end
+    return path, nil, prune_warning
+end
+
+local function cache_ahead_stop_message(downloaded, existing, index, stage, error_kind)
+    local reason
+    if stage == "catalog" then
+        reason = "目录已经变化"
+    elseif stage == "network" and error_kind == "cancelled" then
+        reason = "你取消了第 " .. tostring(index) .. " 章的获取"
+    elseif stage == "network" and error_kind == "retryable" then
+        reason = "第 " .. tostring(index) .. " 章遇到临时网络问题"
+    elseif stage == "network" then
+        reason = "第 " .. tostring(index) .. " 章当前无法从番茄官方页面公开读取"
+    elseif stage == "parser" then
+        reason = "第 " .. tostring(index) .. " 章的官方页面暂时无法安全解析"
+    elseif stage == "cache" then
+        reason = "无法安全检查第 " .. tostring(index) .. " 章的本地缓存"
+    elseif stage == "uncertain" then
+        reason = "保存第 " .. tostring(index) .. " 章时发生意外错误，缓存状态无法确认"
+    else
+        reason = "第 " .. tostring(index) .. " 章无法完整写入，请检查剩余空间或只读状态"
+    end
+    local cache_state = stage == "uncertain"
+        and "缓存可能已经部分改变，请先重启 KOReader 后检查。"
+        or "已经完整保存的章节仍保留。"
+    return "离线准备已停止：" .. reason .. "。\n\n"
+        .. cache_ahead_summary(downloaded, existing) .. "；" .. cache_state
+        .. "书架和阅读进度没有改变。返回书籍页可重新尝试。"
+end
+
+function FanqieLite:cache_chapters_ahead(book_id, plan, existing)
+    local book = self:cache_ahead_plan_is_current(book_id, plan)
+    if not book then
+        self:info("目录已经变化，离线准备已停止。\n\n"
+            .. "没有发起新的章节请求；书架、阅读进度和缓存没有改变。")
+        return
+    end
+    local downloaded, skipped = 0, tonumber(existing) or 0
+    for _, item in ipairs(plan) do
+        local cache_call, cached, cache_err, recoverable = pcall(
+            self.storage.cached_chapter, self.storage, book.id, item.id)
+        if not cache_call or (cache_err and not recoverable) then
+            self:info(cache_ahead_stop_message(
+                downloaded, skipped, item.index, "cache"))
+            return
+        end
+        if cached then
+            skipped = skipped + 1
+        else
+            local xhtml, fetch_err, error_kind, failure_stage = self:fetch_chapter_xhtml(
+                book, item.index,
+                "正在准备离线阅读：第 " .. tostring(item.index) .. " 章……")
+            if not xhtml then
+                self:info(cache_ahead_stop_message(
+                    downloaded, skipped, item.index, failure_stage, error_kind))
+                return
+            end
+            local path, write_err, prune_warning, write_stage =
+                self:write_chapter_cache(book, item.index, xhtml)
+            if not path then
+                self:info(cache_ahead_stop_message(
+                    downloaded, skipped, item.index, write_stage))
+                return
+            end
+            downloaded = downloaded + 1
+            if prune_warning then
+                self:info("离线准备已停止：第 " .. tostring(item.index)
+                    .. " 章已经保存，但较早缓存自动清理未完成。\n\n"
+                    .. cache_ahead_summary(downloaded, skipped)
+                    .. "；缓存数量可能暂时超过每书 12 个。书架和阅读进度没有改变。"
+                    .. "请重启 KOReader 后返回本书检查缓存，再决定是否重试。")
+                return
+            end
+        end
+    end
+    self:info("离线准备完成：" .. cache_ahead_summary(downloaded, skipped) .. "。\n\n"
+        .. "书架和阅读进度没有改变；每本仍只保留最多 12 个章节缓存。")
+end
+
 function FanqieLite:open_chapter(book_id, index)
     local book = Library.find(self.library, book_id)
     index = tonumber(index)
@@ -1615,35 +1827,19 @@ function FanqieLite:open_chapter(book_id, index)
         loading_label = "缓存损坏，已拒绝打开；书架和进度未改变。\n正在联网重新获取……"
     end
     self:with_network(function()
-        local html, fetch_err, fetch_error_kind = NetworkTask.get(
-            BASE .. "/reader/" .. chapter.id, nil, loading_label)
-        if not html then
-            raise_network_error("读取章节失败：", fetch_err, fetch_error_kind)
-        end
-        local json_text, state_err = Parser.extract_initial_state(html)
-        if not json_text then
-            self:raise_parser_failure("解析章节失败", state_err, CHAPTER_PARSE_NEXT)
-        end
-        local state, decode_err = Parser.decode_json(json_text)
-        if not state then
-            self:raise_parser_failure("解析章节失败", decode_err, CHAPTER_PARSE_NEXT)
-        end
-        local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
-        if not parsed then
-            self:raise_parser_failure("解析章节失败", chapter_err, CHAPTER_PARSE_NEXT)
-        end
-        parsed.title = chapter.title ~= "" and chapter.title or parsed.title
-        local write_call, path, write_err, prune_warning = pcall(
-            self.storage.write_chapter, self.storage,
-            book.id, chapter.id, Parser.to_xhtml(book, parsed))
-        if not write_call then
-            raise_user_error("保存章节时发生意外错误，无法确认章节缓存写入状态。\n\n"
-                .. "书架和阅读进度没有改变；缓存可能已经改变。"
-                .. "请重启 KOReader 后返回书籍页检查；不要把本次操作视为已成功缓存。")
-        end
+        local xhtml, fetch_err, fetch_error_kind = self:fetch_chapter_xhtml(
+            book, index, loading_label)
+        if not xhtml then raise_user_error(fetch_err, fetch_error_kind == "retryable") end
+        local path, write_err, prune_warning, write_stage =
+            self:write_chapter_cache(book, index, xhtml)
         if not path then
-            raise_user_error(user_error_detail("保存章节失败：", write_err)
-                .. "\n未完整写入的临时文件已清理。请检查存储空间或只读状态后重试。")
+            if write_stage == "uncertain" then
+                raise_user_error(write_err .. ".\n\n"
+                    .. "书架和阅读进度没有改变；缓存可能已经改变。"
+                    .. "请重启 KOReader 后返回书籍页检查；"
+                    .. "不要把本次操作视为已成功缓存。")
+            end
+            raise_user_error(write_err)
         end
         local ready, position_or_err, pending_consumption =
             self:prepare_chapter_open(book, index, path, true, prune_warning)
