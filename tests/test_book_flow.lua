@@ -63,7 +63,9 @@ end
 
 local FanqieLite = assert(loadfile("main.lua"))()
 local book_id = "7134567890123456789"
+local other_book_id = "7234567890123456789"
 local opened_id, opened_index
+local save_calls = 0
 local book = {
     id = book_id,
     title = "详情页测试书",
@@ -78,13 +80,20 @@ local book = {
 }
 local plugin = setmetatable({
     library = { version = 1, books = { book } },
+    active_book_id = other_book_id,
     storage = { cached_count = function() return 1 end },
-    save_state = function() return true end,
+    save_state = function()
+        save_calls = save_calls + 1
+        return true
+    end,
     open_chapter = function(_, id, index) opened_id, opened_index = id, index end,
 }, { __index = FanqieLite })
 
 plugin:show_book(book_id)
 assert(shown and shown.title == "详情页测试书\n测试作者", "book details did not open")
+assert(save_calls == 0, "merely viewing book details rewrote persistent settings")
+assert(plugin.active_book_id == other_book_id,
+    "merely viewing book details changed the persisted legacy active book")
 assert(shown.item_table[1].text == "开始阅读（第 2 章）",
     "unread book details do not lead with the start-reading action")
 assert(shown.item_table[2].text:find("本地状态：目录 3 章", 1, true),

@@ -882,9 +882,6 @@ function FanqieLite:show_book(book_id)
     if not book then self:info("这本书已不在本地书架中"); return end
     local cached_count = self.storage:cached_count(book.id)
     local cache_status = cached_count and (tostring(cached_count) .. " 个") or "状态不可读"
-    self.active_book_id = book.id
-    local saved, save_err = self:save_state()
-    if not saved then self:info(save_err); return end
     local items = {}
     if #book.chapters > 0 then
         local current_index = book.current_index
