@@ -37,6 +37,8 @@ local DIRECTORY_PARSE_NEXT = "请稍后重试；若持续出现，请确认该�
 local SEARCH_PARSE_NEXT = "请改用番茄官网书籍链接；若持续出现，请检查插件更新。"
 local CHAPTER_PARSE_NEXT = "请返回书籍页选择其他章节；需要登录或解锁时请使用番茄官方客户端；"
     .. "若持续出现，请检查插件更新。"
+local CHAPTER_UNLOCK_ERROR = "该章节需要在番茄官方客户端中解锁"
+local CHAPTER_PREVIEW_ERROR = "官方网页只返回了预览或登录墙，当前章节不可公开读取"
 local NETWORK_WAIT_TIMEOUT_SECONDS = 50
 local CATALOG_DIRECT_LIMIT = 200
 local CATALOG_RANGE_SIZE = 100
@@ -1792,8 +1794,14 @@ function FanqieLite:fetch_chapter_xhtml(book, index, loading_label)
     end
     local parsed, chapter_err = Parser.chapter_from_state(state, chapter.id)
     if not parsed then
+        local parser_kind
+        if chapter_err == CHAPTER_UNLOCK_ERROR then
+            parser_kind = "restricted"
+        elseif chapter_err == CHAPTER_PREVIEW_ERROR then
+            parser_kind = "preview"
+        end
         return nil, self:parser_failure_message(
-            "解析章节失败", chapter_err, CHAPTER_PARSE_NEXT), nil, "parser"
+            "解析章节失败", chapter_err, CHAPTER_PARSE_NEXT), parser_kind, "parser"
     end
     parsed.title = chapter.title ~= "" and chapter.title or parsed.title
     local converted, xhtml = pcall(Parser.to_xhtml, book, parsed)
@@ -1831,6 +1839,10 @@ local function cache_ahead_stop_message(downloaded, existing, index, stage, erro
         reason = "第 " .. tostring(index) .. " 章遇到临时网络问题"
     elseif stage == "network" then
         reason = "第 " .. tostring(index) .. " 章当前无法从番茄官方页面公开读取"
+    elseif stage == "parser" and error_kind == "preview" then
+        reason = "第 " .. tostring(index) .. " 章的官方网页只提供预览，当前无法公开完整读取"
+    elseif stage == "parser" and error_kind == "restricted" then
+        reason = "第 " .. tostring(index) .. " 章需要在番茄官方客户端中解锁"
     elseif stage == "parser" then
         reason = "第 " .. tostring(index) .. " 章的官方页面暂时无法安全解析"
     elseif stage == "cache" then

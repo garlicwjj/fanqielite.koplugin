@@ -32,10 +32,12 @@ function NetworkTask.get()
     return "official chapter page"
 end
 
+local parser_error
 local Parser = {
     extract_initial_state = function() return "{}" end,
     decode_json = function() return {} end,
     chapter_from_state = function(_, chapter_id)
+        if parser_error then return nil, parser_error end
         return { id = chapter_id, title = "官网标题", content = "正文" }
     end,
     to_xhtml = function(_, chapter)
@@ -200,5 +202,28 @@ assert(info_message:find("较早缓存自动清理未完成", 1, true)
         and not info_message:find(prune_warning, 1, true),
     "cache cleanup warning did not use a bounded summary")
 prune_warning = nil
+
+cached_ids = { [chapters[1].id] = true }
+writes, network_calls, parser_error = {}, 0,
+    "官方网页只返回了预览或登录墙，当前章节不可公开读取"
+plugin:confirm_cache_ahead(book_id)
+shown.ok_callback()
+assert(network_calls == 1 and #writes == 0,
+    "preview-only chapter was unexpectedly cached")
+assert(shown.text:find("第 2 章的官方网页只提供预览", 1, true)
+        and not shown.text:find("暂时无法安全解析", 1, true),
+    "preview-only chapter did not explain its actual official access boundary")
+assert(shown.text:find("书架和阅读进度没有改变", 1, true),
+    "preview-only stop did not preserve the local-state explanation")
+
+network_calls, parser_error = 0, "该章节需要在番茄官方客户端中解锁"
+plugin:confirm_cache_ahead(book_id)
+shown.ok_callback()
+assert(network_calls == 1 and #writes == 0,
+    "official-client-only chapter was unexpectedly cached")
+assert(shown.text:find("第 2 章需要在番茄官方客户端中解锁", 1, true)
+        and not shown.text:find("暂时无法安全解析", 1, true),
+    "official-client-only chapter did not explain its actual access boundary")
+parser_error = nil
 
 print("cache ahead flow tests passed")
