@@ -288,8 +288,12 @@ shown.item_table[4].callback()
 assert(info_message:find("不设置手势也能完整使用", 1, true),
     "gesture notice did not preserve the visible-button fallback")
 assert(info_message:find("番茄小说：下一章", 1, true)
-        and info_message:find("番茄小说：上一章", 1, true),
+        and info_message:find("番茄小说：上一章", 1, true)
+        and info_message:find("番茄小说：打开本地书架", 1, true),
     "gesture notice did not name the registered reader actions")
+assert(info_message:find("工具 → 番茄小说", 1, true)
+        and info_message:find("打开书架不会修改章节状态", 1, true),
+    "gesture notice did not preserve the visible shelf fallback and state boundary")
 assert(info_message:find("当前打开的 Fanqie Lite 章节", 1, true),
     "gesture notice did not explain the safe current-document boundary")
 

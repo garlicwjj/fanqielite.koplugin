@@ -189,6 +189,12 @@ function FanqieLite:onDispatcherRegisterActions()
         title = _("番茄小说：下一章"),
         reader = true,
     })
+    Dispatcher:registerAction("fanqielite_open_bookshelf", {
+        category = "none",
+        event = "FanqieLiteOpenBookshelf",
+        title = _("番茄小说：打开本地书架"),
+        reader = true,
+    })
 end
 
 function FanqieLite:onFanqieLiteOpen()
@@ -268,6 +274,10 @@ end
 
 function FanqieLite:onFanqieLiteNextChapter()
     self:open_reader_adjacent_chapter(1)
+end
+
+function FanqieLite:onFanqieLiteOpenBookshelf()
+    self:show_home()
 end
 
 function FanqieLite:addToMainMenu(menu_items)
@@ -868,10 +878,11 @@ function FanqieLite:show_settings()
         {
             text = _("可选手势快捷操作"), callback = function()
                 self:info("不设置手势也能完整使用：本地书架、书籍页和章节目录"
-                    .. "始终保留可见的上一章、下一章入口。\n\n"
-                    .. "如需在正文中加速切章，可在 KOReader 的手势管理中，"
-                    .. "把任意手势绑定到“番茄小说：下一章”或“番茄小说：上一章”。\n\n"
-                    .. "快捷操作只会跟随当前打开的 Fanqie Lite 章节；"
+                    .. "始终保留可见入口，正文顶部菜单也可从“工具 → 番茄小说”返回书架。\n\n"
+                    .. "如需在正文中快速返回或切章，可在 KOReader 的手势管理中，"
+                    .. "把任意手势绑定到“番茄小说：打开本地书架”、"
+                    .. "“番茄小说：下一章”或“番茄小说：上一章”。\n\n"
+                    .. "打开书架不会修改章节状态；切章快捷操作只会跟随当前打开的 Fanqie Lite 章节。"
                     .. "普通 EPUB、PDF、其他插件书籍或无法安全确认的缓存不会跳转。"
                     .. "目标章节未缓存时仍会显示正常的联网、取消和错误提示。")
             end,

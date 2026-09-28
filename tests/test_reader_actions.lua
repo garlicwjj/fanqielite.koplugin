@@ -57,17 +57,24 @@ FanqieLite:onDispatcherRegisterActions()
 
 local previous_action = registered.fanqielite_previous_chapter
 local next_action = registered.fanqielite_next_chapter
-assert(previous_action and next_action, "reader chapter actions were not registered")
+local bookshelf_action = registered.fanqielite_open_bookshelf
+assert(previous_action and next_action and bookshelf_action,
+    "Fanqie reader actions were not registered")
 assert(previous_action.event == "FanqieLitePreviousChapter"
         and previous_action.title == "番茄小说：上一章",
     "previous chapter action metadata is not stable")
 assert(next_action.event == "FanqieLiteNextChapter"
         and next_action.title == "番茄小说：下一章",
     "next chapter action metadata is not stable")
-assert(previous_action.reader == true and next_action.reader == true,
-    "Fanqie chapter actions were not limited to reader action lists")
-assert(not previous_action.general and not next_action.general,
-    "Fanqie chapter actions leaked into unrelated general action lists")
+assert(bookshelf_action.event == "FanqieLiteOpenBookshelf"
+        and bookshelf_action.title == "番茄小说：打开本地书架",
+    "bookshelf action metadata is not stable")
+assert(previous_action.reader == true and next_action.reader == true
+        and bookshelf_action.reader == true,
+    "Fanqie reader actions were not limited to reader action lists")
+assert(not previous_action.general and not next_action.general
+        and not bookshelf_action.general,
+    "Fanqie reader actions leaked into unrelated general action lists")
 
 local root = "/mock/koreader/fanqielite"
 local first_book_id = "7134567890123456789"
@@ -108,6 +115,7 @@ local storage = {
 
 local infos = {}
 local opened = {}
+local home_calls = 0
 local plugin = setmetatable({
     active_book_id = second_book_id,
     library = { books = { first_book, second_book } },
@@ -119,7 +127,12 @@ local plugin = setmetatable({
     open_chapter = function(_, book_id, index)
         opened[#opened + 1] = { book_id = book_id, index = index }
     end,
+    show_home = function() home_calls = home_calls + 1 end,
 }, { __index = FanqieLite })
+
+plugin:onFanqieLiteOpenBookshelf()
+assert(home_calls == 1 and #opened == 0 and cache_checks == 0,
+    "bookshelf action did not open the local shelf without changing chapter state")
 
 plugin:onFanqieLiteNextChapter()
 assert(#opened == 1 and opened[1].book_id == first_book_id and opened[1].index == 3,
