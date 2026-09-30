@@ -277,7 +277,7 @@ plugin:show_settings()
 assert(shown and shown.title == "设置与数据", "settings menu did not open")
 local expected_settings = {
     "从文件导入书架", "导出本地书架", "缓存管理说明",
-    "可选手势快捷操作", "隐私与使用边界", "完全卸载与安全回退",
+    "清理全部章节缓存", "可选手势快捷操作", "隐私与使用边界", "完全卸载与安全回退",
     "返回我的本地书架",
 }
 for index, expected in ipairs(expected_settings) do
@@ -285,7 +285,7 @@ for index, expected in ipairs(expected_settings) do
         "settings entry order changed at index " .. tostring(index))
 end
 
-shown.item_table[4].callback()
+shown.item_table[5].callback()
 assert(info_message:find("不设置手势也能完整使用", 1, true),
     "gesture notice did not preserve the visible-button fallback")
 assert(info_message:find("番茄小说：下一章", 1, true)
@@ -298,7 +298,7 @@ assert(info_message:find("工具 → 番茄小说", 1, true)
 assert(info_message:find("当前打开的 Fanqie Lite 章节", 1, true),
     "gesture notice did not explain the safe current-document boundary")
 
-shown.item_table[5].callback()
+shown.item_table[6].callback()
 assert(info_message:find("默认阅读只访问番茄官网公开内容", 1, true),
     "privacy notice did not explain the default public-reading boundary")
 assert(info_message:find("实验性扫码导入只用于一次性读取书架", 1, true),
@@ -306,7 +306,7 @@ assert(info_message:find("实验性扫码导入只用于一次性读取书架", 
 assert(info_message:find("不会保存账号登录", 1, true),
     "privacy notice did not state the credential persistence boundary")
 
-shown.item_table[6].callback()
+shown.item_table[7].callback()
 assert(info_message:find("先导出本地书架", 1, true),
     "uninstall notice did not recommend a recoverable backup")
 assert(info_message:find("第 1 项即可停用插件", 1, true),
@@ -318,7 +318,50 @@ assert(info_message:find("本地书架、目录和阅读进度", 1, true),
 
 local returned_to_shelf = false
 plugin.show_home = function() returned_to_shelf = true end
-shown.item_table[7].callback()
+shown.item_table[8].callback()
 assert(returned_to_shelf, "settings did not provide a visible return to the bookshelf")
+
+local cache_counts = { [unread_id] = 2, [recent_id] = 3 }
+local cleared_ids = {}
+plugin.library = { version = 1, sort = "recent", books = {
+    { id = unread_id, title = "缓存甲", author = "", chapters = {}, current_index = 1 },
+    { id = recent_id, title = "缓存乙", author = "", chapters = {}, current_index = 1 },
+} }
+plugin.storage = {
+    cached_count = function(_, book_id) return cache_counts[book_id] end,
+    clear_book = function(_, book_id)
+        cleared_ids[#cleared_ids + 1] = book_id
+        local count = cache_counts[book_id]
+        cache_counts[book_id] = 0
+        return count
+    end,
+}
+plugin:confirm_clear_all_caches()
+assert(shown.text:find("2 本书的 5 个章节缓存", 1, true),
+    "bulk cache confirmation did not show the exact scope")
+assert(shown.text:find(".sdr 阅读位置和未知文件不会删除", 1, true),
+    "bulk cache confirmation hid preserved data")
+assert(shown.ok_text == "全部清理", "bulk cache confirmation was not explicit")
+
+local stale_callback = shown.ok_callback
+cache_counts[recent_id] = 4
+stale_callback()
+assert(#cleared_ids == 0, "stale bulk cache plan deleted files")
+assert(info_message:find("确认期间发生变化", 1, true),
+    "stale bulk cache plan did not explain the safe stop")
+
+plugin:confirm_clear_all_caches()
+assert(shown.text:find("2 本书的 6 个章节缓存", 1, true),
+    "refreshed bulk cache plan did not use current counts")
+shown.ok_callback()
+assert(#cleared_ids == 2, "bulk cache clear did not process each confirmed book")
+assert(info_message:find("已清理全部 6 个章节缓存", 1, true),
+    "bulk cache clear did not report the exact result")
+assert(info_message:find("书架、目录、阅读进度、KOReader .sdr 和未知文件均已保留", 1, true),
+    "bulk cache result did not state preserved data")
+
+plugin:confirm_clear_all_caches()
+assert(info_message:find("没有数字 XHTML 章节缓存需要清理", 1, true),
+    "empty bulk cache action did not stop without confirmation")
 
 print("home flow tests passed")

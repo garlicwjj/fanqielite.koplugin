@@ -314,6 +314,95 @@ function FanqieLite:safe_clear_book(book_id)
     return count, clear_err, false
 end
 
+function FanqieLite:plan_clear_all_caches()
+    local plan = { books = {}, total = 0 }
+    for _, book in ipairs(self.library.books or {}) do
+        local count = self:safe_cached_count(book.id)
+        if type(count) ~= "number" or count < 0 or count ~= math.floor(count) then
+            return nil, "无法安全读取全部缓存数量，清理没有开始。\n\n"
+                .. "书架、阅读进度和缓存没有改变；请重启 KOReader 后重试。"
+        end
+        if count > 0 then
+            plan.books[#plan.books + 1] = { id = book.id, count = count }
+            plan.total = plan.total + count
+        end
+    end
+    return plan
+end
+
+function FanqieLite:clear_all_cache_plan_is_current(plan)
+    if type(plan) ~= "table" or type(plan.books) ~= "table"
+            or type(plan.total) ~= "number" then return false end
+    local total = 0
+    for _, item in ipairs(plan.books) do
+        if type(item) ~= "table" or not Library.find(self.library, item.id)
+                or type(item.count) ~= "number" then return false end
+        local current = self:safe_cached_count(item.id)
+        if current ~= item.count then return false end
+        total = total + current
+    end
+    return total == plan.total
+end
+
+function FanqieLite:clear_all_caches(plan)
+    if not self:clear_all_cache_plan_is_current(plan) then
+        self:info("缓存状态已在确认期间发生变化，批量清理没有开始。\n\n"
+            .. "请重新打开“清理全部章节缓存”确认最新数量。"
+            .. "书架、阅读进度和缓存没有改变。")
+        return
+    end
+    local deleted = 0
+    for _, item in ipairs(plan.books) do
+        local count, clear_err, unexpected = self:safe_clear_book(item.id)
+        if unexpected then
+            self:info("批量缓存清理意外中断，无法确认所有目标文件的最终状态。\n\n"
+                .. "停止前已确认删除 " .. tostring(deleted) .. " 个；"
+                .. "实际删除数量可能更多。书架和阅读进度没有改变，"
+                .. ".sdr 与未知文件不在清理范围。请重启 KOReader 后重新检查。")
+            return
+        end
+        if not count then
+            self:info("批量缓存清理在删除 " .. tostring(deleted) .. " 个后停止：\n"
+                .. cache_error_detail(clear_err)
+                .. "\n\n未处理书籍的缓存保持不变；书架、阅读进度、.sdr 和未知文件不会删除。")
+            return
+        end
+        deleted = deleted + count
+        if count ~= item.count then
+            self:info("缓存状态在清理期间发生变化，已停止处理后续书籍。\n\n"
+                .. "已确认删除 " .. tostring(deleted) .. " 个；"
+                .. "书架、阅读进度、.sdr 和未知文件不会删除。"
+                .. "请重新打开缓存管理确认剩余状态。")
+            return
+        end
+        if clear_err then
+            self:info("批量缓存只完成了部分清理：\n" .. cache_error_detail(clear_err)
+                .. "\n\n已确认删除 " .. tostring(deleted) .. " 个；未处理书籍的缓存保持不变。"
+                .. "书架、阅读进度、.sdr 和未知文件不会删除。")
+            return
+        end
+    end
+    self:info("已清理全部 " .. tostring(deleted)
+        .. " 个章节缓存。\n\n书架、目录、阅读进度、KOReader .sdr 和未知文件均已保留。", 6)
+end
+
+function FanqieLite:confirm_clear_all_caches()
+    local plan, plan_err = self:plan_clear_all_caches()
+    if not plan then self:info(plan_err); return end
+    if plan.total == 0 then
+        self:info("本地书架中的书籍目前没有数字 XHTML 章节缓存需要清理。", 4)
+        return
+    end
+    UIManager:show(ConfirmBox:new{
+        text = "将清理本地书架中 " .. tostring(#plan.books) .. " 本书的 "
+            .. tostring(plan.total) .. " 个章节缓存。\n\n"
+            .. "书架、目录和阅读进度会保留；KOReader .sdr 阅读位置和未知文件不会删除。"
+            .. "清理后离线时将无法打开这些章节。是否继续？",
+        ok_text = _("全部清理"),
+        ok_callback = function() self:clear_all_caches(plan) end,
+    })
+end
+
 function FanqieLite:book_local_status(book, cached_count, now)
     local chapter_count = type(book.chapters) == "table" and #book.chapters or 0
     local cache_text = cached_count == nil
@@ -969,10 +1058,15 @@ function FanqieLite:show_settings()
             text = _("缓存管理说明"), callback = function()
                 self:info("每本书最多保留 12 个章节缓存；写入新章节后会优先清理较早写入的缓存。\n\n"
                     .. "清理入口位于对应书籍页面；移除书籍后也会另行询问是否立即清理。"
-                    .. "两项操作独立确认，选择保留时以后重新添加同一本书仍可复用。\n\n"
+                    .. "设置页另有“清理全部章节缓存”，会先统计并再次确认。"
+                    .. "各项操作独立确认，选择保留时以后重新添加同一本书仍可复用。\n\n"
                     .. "清理只删除插件安全目录内的数字 XHTML 缓存；KOReader .sdr 阅读位置和未知文件保留。"
                     .. "离线时只能打开仍有完整缓存的章节。")
             end,
+        },
+        {
+            text = _("清理全部章节缓存"),
+            callback = function() self:confirm_clear_all_caches() end,
         },
         {
             text = _("可选手势快捷操作"), callback = function()
