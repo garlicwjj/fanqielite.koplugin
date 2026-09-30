@@ -41,6 +41,7 @@ fanqielite.koplugin/docs/
 fanqielite.koplugin/docs/BROWSER_EXPORT_PILOT_2026-09-08.md
 fanqielite.koplugin/docs/COMPATIBILITY_PILOT_2026-09-03.md
 fanqielite.koplugin/docs/EPHEMERAL_HTTP_AUDIT.md
+fanqielite.koplugin/docs/EXPERIMENTAL_COMPLETION_AUDIT.md
 fanqielite.koplugin/docs/QUALITY_PLAN.md
 fanqielite.koplugin/docs/QR_THREAT_MODEL.md
 fanqielite.koplugin/docs/SUBPROCESS_SECURITY_AUDIT.md
@@ -89,6 +90,7 @@ test -s "$plugin_root/docs/bookshelf-format.md"
 test -s "$plugin_root/docs/BROWSER_EXPORT_PILOT_2026-09-08.md"
 test -s "$plugin_root/docs/COMPATIBILITY_PILOT_2026-09-03.md"
 test -s "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
+test -s "$plugin_root/docs/EXPERIMENTAL_COMPLETION_AUDIT.md"
 test -s "$plugin_root/docs/compatibility-matrix.md"
 test -s "$plugin_root/docs/QUALITY_PLAN.md"
 test -s "$plugin_root/docs/QR_THREAT_MODEL.md"
@@ -174,5 +176,7 @@ grep -Fq '/passport/web/logout/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '只允许支撑明确标为“实验性”的入口' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '扫码导入通过 `qr_import_task.lua`' "$plugin_root/docs/SUBPROCESS_SECURITY_AUDIT.md"
 grep -Fq '复位函数自身异常时固定停止' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
+grep -Fq '当前实验版的功能闭环已经完成' "$plugin_root/docs/EXPERIMENTAL_COMPLETION_AUDIT.md"
+grep -Fq '不代表稳定版候选或正式 1.0' "$plugin_root/docs/EXPERIMENTAL_COMPLETION_AUDIT.md"
 
 printf '%s\n' "candidate package tests passed"

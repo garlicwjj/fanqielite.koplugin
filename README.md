@@ -80,3 +80,5 @@
 未经实机验证、安全审计和项目所有者明确确认，本项目不会标记为稳定版 1.0。
 
 稳定版候选的优先级、风险和证据门禁见 [`docs/QUALITY_PLAN.md`](docs/QUALITY_PLAN.md)，30 本/90 章节兼容测试方法见 [`docs/compatibility-matrix.md`](docs/compatibility-matrix.md)。
+
+当前个人实验版的 10 项功能目标、证据和明确后移范围见 [`docs/EXPERIMENTAL_COMPLETION_AUDIT.md`](docs/EXPERIMENTAL_COMPLETION_AUDIT.md)。审计结论是实验版功能闭环已经完成；这不等于稳定版候选或正式 1.0。
