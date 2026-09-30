@@ -94,8 +94,8 @@ assert(shown.item_table[1].text == "搜索或添加一本书（推荐）",
     "first-use journey did not lead with the recommended no-login path")
 assert(shown.item_table[2].text == "从文件导入书架",
     "first-use journey did not expose the available import fallback next")
-assert(shown.item_table[3].text:find("尚未开放", 1, true),
-    "first-use journey did not identify the unavailable QR path")
+assert(shown.item_table[3].text:find("实验性", 1, true),
+    "first-use journey did not identify the experimental QR path")
 
 shown.item_table[1].callback()
 assert(shown.title == "搜索或添加一本书", "recommended entry did not open the input dialog")

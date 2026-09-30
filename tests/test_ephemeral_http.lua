@@ -83,6 +83,8 @@ local policies = {
         method = "GET",
         path = "/__synthetic__/status",
         allow_empty = true,
+        query_fields = { "aid", "token" },
+        required_query_fields = { "aid" },
     },
 }
 local client = assert(Client.new(policies))
@@ -131,19 +133,23 @@ rejected = client:request("synthetic_post", { body = "{}", cookie = "bad\r\nX-Le
 assert(rejected == nil and network_calls == 1, "header injection accepted")
 rejected = client:request("synthetic_get", { body = canary })
 assert(rejected == nil and network_calls == 1, "GET body accepted")
+rejected = client:request("synthetic_get", { query = { aid = "2503", unknown = canary } })
+assert(rejected == nil and network_calls == 1, "unknown query input accepted")
+rejected = client:request("synthetic_get", { query = { token = canary } })
+assert(rejected == nil and network_calls == 1, "missing required query input accepted")
 
 http_stub.PROXY = "http://proxy.invalid:8080"
-rejected, rejected_err = client:request("synthetic_get")
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
 assert(rejected == nil and network_calls == 1 and rejected_err:find("HTTP 代理", 1, true))
 http_stub.PROXY = nil
 
 handler = function() error("raw network failure " .. canary) end
-rejected, rejected_err = client:request("synthetic_get")
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
 assert(rejected == nil and not rejected_err:find(canary, 1, true), "raw exception leaked")
 assert(reset_calls == 2, "timeout not reset after exception")
 
 handler = function() return nil, "certificate verify failed " .. canary end
-rejected, rejected_err = client:request("synthetic_get")
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
 assert(rejected == nil and rejected_err:find("证书验证失败", 1, true))
 assert(not rejected_err:find(canary, 1, true), "TLS error leaked")
 
@@ -151,12 +157,12 @@ handler = function(request)
     assert(request.sink(string.rep("x", Client.MAX_RESPONSE_BYTES + 1)) == nil)
     return nil, "response too large " .. canary
 end
-rejected, rejected_err = client:request("synthetic_get")
-assert(rejected == nil and rejected_err:find("超过 256 KB", 1, true))
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
+assert(rejected == nil and rejected_err:find("超过 2 MB", 1, true))
 assert(not rejected_err:find(canary, 1, true), "oversized response error leaked")
 
 handler = function() return 1, 302, { location = "https://evil.example/" }, "Found " .. canary end
-rejected, rejected_err = client:request("synthetic_get")
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
 assert(rejected == nil and rejected_err:find("重定向", 1, true))
 assert(not rejected_err:find(canary, 1, true), "redirect status leaked")
 
@@ -164,7 +170,7 @@ handler = function(request)
     assert(request.sink("ok") == 1)
     return 1, 200, { ["content-length"] = "3" }, "OK"
 end
-rejected, rejected_err = client:request("synthetic_get")
+rejected, rejected_err = client:request("synthetic_get", { query = { aid = "2503" } })
 assert(rejected == nil and rejected_err:find("传输不完整", 1, true))
 
 assert(timeout_calls == 6 and reset_calls == 6, "attempted requests did not reset timeouts")
@@ -178,7 +184,7 @@ end })
 local calls_before_setup_failure = network_calls
 local resets_before_setup_failure = reset_calls
 local setup_contained, setup_result, setup_err = pcall(
-    client.request, client, "synthetic_get")
+    client.request, client, "synthetic_get", { query = { aid = "2503" } })
 assert(setup_contained, "timeout setup exception escaped the sensitive HTTP boundary")
 assert(setup_result == nil and network_calls == calls_before_setup_failure,
     "sensitive request continued after timeout setup failed")
@@ -196,7 +202,7 @@ handler = function(request)
     return 1, 200, { ["content-length"] = "2" }, "OK"
 end
 local reset_contained, reset_result, reset_err = pcall(
-    client.request, client, "synthetic_get")
+    client.request, client, "synthetic_get", { query = { aid = "2503" } })
 assert(reset_contained, "timeout reset exception escaped the sensitive HTTP boundary")
 assert(reset_result == nil, "sensitive response was accepted after timeout reset failed")
 assert(reset_err:find("恢复 KOReader 网络超时", 1, true)

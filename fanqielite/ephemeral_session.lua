@@ -66,6 +66,48 @@ local function cleanup_notice(cleaned)
     end
 end
 
+local remote_book_fields = {
+    id = true,
+    title = true,
+    author = true,
+    cover_url = true,
+    imported_progress = true,
+}
+
+local remote_progress_fields = {
+    chapter_id = true,
+    chapter_title = true,
+    position = true,
+}
+
+local function remote_payload(books)
+    if type(books) ~= "table" then return nil end
+    local payload = { format = Import.FORMAT, version = Import.VERSION, books = {} }
+    for index, book in ipairs(books) do
+        if type(book) ~= "table" then return nil end
+        for key in pairs(book) do
+            if type(key) ~= "string" or not remote_book_fields[key] then return nil end
+        end
+        local output = {
+            id = book.id,
+            title = book.title,
+            author = book.author,
+            cover_url = book.cover_url,
+        }
+        if book.imported_progress ~= nil then
+            if type(book.imported_progress) ~= "table" then return nil end
+            for key in pairs(book.imported_progress) do
+                if type(key) ~= "string" or not remote_progress_fields[key] then return nil end
+            end
+            output.current_chapter_id = book.imported_progress.chapter_id
+            output.current_chapter_title = book.imported_progress.chapter_title
+            output.reading_position = book.imported_progress.position
+        end
+        payload.books[index] = output
+    end
+    return payload
+end
+
 local function attempt_cleanup(self, cleanup)
     local sensitive = self._sensitive
     local cleaned
@@ -152,6 +194,37 @@ function Session:authorize(run_id, credentials)
     self._qr_expires_at = nil
     self._state = "authorized"
     return true
+end
+
+function Session:poll_ticket(run_id)
+    local valid, valid_err = current(self, run_id, "qr_pending")
+    if not valid then return nil, valid_err end
+    local sensitive = self._sensitive
+    if type(sensitive) ~= "table"
+            or not bounded_text(sensitive.poll_ticket, Session.MAX_POLL_TICKET_BYTES) then
+        return nil, "官方二维码会话无效，请重新开始"
+    end
+    return sensitive.poll_ticket
+end
+
+function Session:prepare_remote_import(run_id, books, logout_ok)
+    local valid, valid_err = current(self, run_id, "qr_pending")
+    if not valid then return nil, valid_err end
+    local normalized = Import.validate(remote_payload(books))
+    if not normalized then
+        self:force_clear()
+        return nil, "官方书架数据验证失败；本地书架和阅读进度没有改变。"
+    end
+    self._pending_books = normalized
+    if type(self._sensitive) == "table" then
+        for key in pairs(self._sensitive) do self._sensitive[key] = nil end
+    end
+    self._sensitive = nil
+    self._qr_expires_at = nil
+    self._deadline = nil
+    self._logout_ok = logout_ok == true
+    self._state = "ready_to_confirm"
+    return true, cleanup_notice(self._logout_ok)
 end
 
 function Session:begin_fetch(run_id)

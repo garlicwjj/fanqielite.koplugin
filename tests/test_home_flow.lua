@@ -3,6 +3,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local shown
 local Menu = {}
 function Menu:new(options) return options end
+local ConfirmBox = {}
+function ConfirmBox:new(options) return options end
 
 local UIManager = {
     show = function(_, widget) shown = widget end,
@@ -42,7 +44,7 @@ function Library.sorted(library)
 end
 
 local stubs = {
-    ["ui/widget/confirmbox"] = {},
+    ["ui/widget/confirmbox"] = ConfirmBox,
     datastorage = {},
     device = {},
     dispatcher = {},
@@ -99,22 +101,21 @@ assert(shown.item_table[1].text == "搜索或添加一本书（推荐）",
     "search/add is not the first onboarding entry")
 assert(shown.item_table[2].text == "从文件导入书架",
     "file import is not the second onboarding entry")
-assert(shown.item_table[3].text == "扫码导入我的番茄书架（尚未开放）",
+assert(shown.item_table[3].text == "扫码导入我的番茄书架（实验性）",
     "QR import is not the third onboarding entry")
 
 shown.item_table[3].callback()
-assert(info_message:find("尚未开放", 1, true), "QR status did not say the feature is unavailable")
-assert(info_message:find("没有发起账号授权", 1, true),
-    "QR status did not explain the current account state")
-assert(info_message:find("没有请求或保存任何登录信息", 1, true),
-    "QR status did not explain credential handling")
-assert(info_message:find("搜索或添加一本书", 1, true),
-    "QR status did not point to the no-login path")
-assert(info_message:find("从文件导入书架", 1, true),
-    "QR status did not point to the file-import fallback")
-assert(info_message:find("已有本地书架不受影响", 1, true),
-    "QR status did not explain local bookshelf safety")
+assert(shown.text:find("一次性扫码导入（实验性）", 1, true),
+    "QR confirmation did not identify the experimental feature")
+assert(shown.text:find("不写入设置、缓存或日志", 1, true),
+    "QR confirmation did not explain credential handling")
+assert(shown.text:find("不会向账号写入阅读进度", 1, true),
+    "QR confirmation did not explain the read-only account boundary")
+assert(shown.text:find("扫码失败、取消或超时不会改变本地书架", 1, true),
+    "QR confirmation did not explain local bookshelf safety")
+assert(shown.ok_text == "显示二维码", "QR confirmation did not require an explicit start")
 
+plugin:show_home()
 shown.item_table[1].callback()
 shown.item_table[2].callback()
 assert(prompted, "search/add onboarding entry is not wired")
@@ -199,7 +200,7 @@ assert(shown.item_table[8].text:find("[2/3]", 1, true),
 shown.item_table[7].callback()
 assert(selected_id == unread_id, "book row no longer opens its details")
 assert(shown.item_table[9].text == "从文件导入书架", "visible file import missing below books")
-assert(shown.item_table[10].text == "扫码导入我的番茄书架（尚未开放）",
+assert(shown.item_table[10].text == "扫码导入我的番茄书架（实验性）",
     "visible QR import missing below books")
 
 local sort_item = shown.item_table[4]
@@ -300,7 +301,7 @@ assert(info_message:find("当前打开的 Fanqie Lite 章节", 1, true),
 shown.item_table[5].callback()
 assert(info_message:find("默认阅读只访问番茄官网公开内容", 1, true),
     "privacy notice did not explain the default public-reading boundary")
-assert(info_message:find("扫码导入目前尚未开放", 1, true),
+assert(info_message:find("实验性扫码导入只用于一次性读取书架", 1, true),
     "privacy notice did not explain the current QR state")
 assert(info_message:find("不会保存账号登录", 1, true),
     "privacy notice did not state the credential persistence boundary")

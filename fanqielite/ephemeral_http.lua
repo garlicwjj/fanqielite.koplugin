@@ -7,8 +7,9 @@ local Client = {}
 Client.__index = Client
 
 Client.MAX_REQUEST_BYTES = 64 * 1024
-Client.MAX_RESPONSE_BYTES = 256 * 1024
+Client.MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 Client.MAX_CREDENTIAL_HEADER_BYTES = 16 * 1024
+Client.MAX_QUERY_VALUE_BYTES = 4096
 
 local HOST = "fanqienovel.com"
 local BLOCK_TIMEOUT = 10
@@ -59,6 +60,21 @@ local function header_set(values, response)
     return output
 end
 
+local function name_set(values)
+    if values == nil then return {}, 0 end
+    if type(values) ~= "table" then return nil end
+    local output, count = {}, 0
+    for _, name in ipairs(values) do
+        if type(name) ~= "string" or not name:match("^[a-z][a-z0-9_]*$")
+                or output[name] then
+            return nil
+        end
+        output[name] = true
+        count = count + 1
+    end
+    return output, count
+end
+
 local function validate_policy(operations)
     if type(operations) ~= "table" then return nil end
     local output, count = {}, 0
@@ -70,14 +86,22 @@ local function validate_policy(operations)
         local method = policy.method
         local path = policy.path
         if (method ~= "GET" and method ~= "POST") or type(path) ~= "string"
-                or #path > 512 or not path:match("^/[A-Za-z0-9_./%-]+$")
+                or #path > 512 or not path:match("^/[A-Za-z0-9_:./%-]+$")
                 or path:find("..", 1, true) or path:find("//", 1, true)
                 or path:find("/./", 1, true) or path:sub(-2) == "/." then
             return nil
         end
         local request_headers = header_set(policy.request_headers, false)
         local response_headers = header_set(policy.response_headers, true)
-        if not request_headers or not response_headers then return nil end
+        local query_fields, query_count = name_set(policy.query_fields)
+        local required_query_fields = name_set(policy.required_query_fields)
+        if not request_headers or not response_headers or not query_fields
+                or not required_query_fields then
+            return nil
+        end
+        for name in pairs(required_query_fields) do
+            if not query_fields[name] then return nil end
+        end
         local content_type = policy.content_type
         if content_type ~= nil and (method ~= "POST" or not valid_value(content_type, 128)) then
             return nil
@@ -90,10 +114,63 @@ local function validate_policy(operations)
             allow_empty = policy.allow_empty == true,
             request_headers = request_headers,
             response_headers = response_headers,
+            query_fields = query_fields,
+            required_query_fields = required_query_fields,
+            query_count = query_count,
         }
         count = count + 1
     end
     if count == 0 then return nil end
+    return output
+end
+
+local function encode_query_component(value)
+    return (value:gsub("([^%w%-._~])", function(character)
+        return string.format("%%%02X", string.byte(character))
+    end))
+end
+
+local function build_query(policy, query)
+    if query == nil then query = {} end
+    if type(query) ~= "table" then return nil end
+    local keys, count = {}, 0
+    for key, value in pairs(query) do
+        if type(key) ~= "string" or not policy.query_fields[key]
+                or not valid_value(value, Client.MAX_QUERY_VALUE_BYTES) then
+            return nil
+        end
+        count = count + 1
+        keys[#keys + 1] = key
+    end
+    if count > policy.query_count then return nil end
+    for name in pairs(policy.required_query_fields) do
+        if query[name] == nil then return nil end
+    end
+    table.sort(keys)
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = encode_query_component(key)
+            .. "=" .. encode_query_component(query[key])
+    end
+    return table.concat(parts, "&")
+end
+
+local function response_header_value(name, value)
+    if type(value) == "string" then
+        if not valid_value(value, Client.MAX_CREDENTIAL_HEADER_BYTES * 2) then return nil end
+        return value
+    end
+    if name ~= "set-cookie" or type(value) ~= "table" then return nil end
+    local output, total = {}, 0
+    for index, item in ipairs(value) do
+        if index > 32 or not valid_value(item, Client.MAX_CREDENTIAL_HEADER_BYTES * 2) then
+            return nil
+        end
+        total = total + #item
+        if total > Client.MAX_CREDENTIAL_HEADER_BYTES * 2 then return nil end
+        output[index] = item
+    end
+    if #output == 0 then return nil end
     return output
 end
 
@@ -134,10 +211,12 @@ function Client:request(operation, input)
     end
     input = input or {}
     for key in pairs(input) do
-        if key ~= "body" and key ~= "cookie" and key ~= "headers" then
+        if key ~= "body" and key ~= "cookie" and key ~= "headers" and key ~= "query" then
             return nil, "一次性授权请求参数无效"
         end
     end
+    local query = build_query(policy, input.query)
+    if query == nil then return nil, "一次性授权请求参数无效" end
     local body = input.body
     if policy.method == "GET" then
         if body ~= nil then return nil, "一次性授权请求参数无效" end
@@ -189,7 +268,7 @@ function Client:request(operation, input)
         return 1
     end
     local request = {
-        url = "https://" .. HOST .. policy.path,
+        url = "https://" .. HOST .. policy.path .. (query ~= "" and ("?" .. query) or ""),
         method = policy.method,
         redirect = false,
         create = VerifiedTLS.create,
@@ -202,7 +281,7 @@ function Client:request(operation, input)
     if not timeout_ready then return nil, timeout_err end
     local called, ok, code, response_headers, status = pcall(http.request, request)
     if not restore_timeout() then return nil, TIMEOUT_RESET_ERROR end
-    if too_large then return nil, "一次性授权响应超过 256 KB，已安全停止" end
+    if too_large then return nil, "一次性授权响应超过 2 MB，已安全停止" end
     if not called then return nil, fixed_request_error(ok) end
     if not ok then return nil, fixed_request_error(code or status) end
     code = tonumber(code)
@@ -218,10 +297,11 @@ function Client:request(operation, input)
     for name, value in pairs(type(response_headers) == "table" and response_headers or {}) do
         local lower = type(name) == "string" and name:lower() or ""
         if policy.response_headers[lower] then
-            if not valid_value(value, Client.MAX_CREDENTIAL_HEADER_BYTES * 2) then
+            local accepted = response_header_value(lower, value)
+            if accepted == nil then
                 return nil, "一次性授权响应头无效，已安全停止"
             end
-            exposed[lower] = value
+            exposed[lower] = accepted
         end
     end
     return { body = table.concat(chunks), headers = exposed, status = code }

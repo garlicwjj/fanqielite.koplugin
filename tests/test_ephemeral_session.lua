@@ -219,6 +219,34 @@ assert(not stale_err:find(canary, 1, true), "stale-result error leaked credentia
 assert(stale:status().state == "initializing", "stale result changed current session")
 assert(not contains(stale, canary), "stale result became reachable from current session")
 
+-- The production QR worker keeps authenticated credentials inside its child
+-- process and returns only validated books plus the logout result. The parent
+-- session retains only the pre-authorization poll material until that result.
+local remote = Session.new(clock)
+local remote_id = assert(remote:start())
+assert(remote:qr_ready(remote_id, "qr:" .. canary, "poll:" .. canary, now + 30))
+assert(remote:poll_ticket(remote_id) == "poll:" .. canary)
+local remote_books_input = {{
+    id = "7633875868615461950",
+    title = "测试书籍",
+    author = "测试作者",
+    cover_url = "https://example.invalid/cover.jpg",
+    imported_progress = {
+        chapter_id = "70000000001",
+        chapter_title = "第一章",
+        position = 0.75,
+    },
+}}
+local remote_prepared, remote_notice = remote:prepare_remote_import(
+    remote_id, remote_books_input, false)
+assert(remote_prepared and remote_notice:find("退出未完成", 1, true))
+assert(remote:status().state == "ready_to_confirm"
+    and remote:status().has_sensitive == false)
+assert(not contains(remote, canary), "remote import retained poll material")
+local remote_books = assert(remote:begin_commit(remote_id))
+assert(remote_books[1].title == "测试书籍")
+assert(remote:complete_commit(remote_id, true))
+
 -- Malformed or credential-bearing bookshelf data fails closed, clears the
 -- active session, and returns a fixed error without echoing the payload.
 local invalid = Session.new(clock)

@@ -18,6 +18,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
 local Export = require("fanqielite.export")
+local EphemeralSession = require("fanqielite.ephemeral_session")
 local Import = require("fanqielite.import")
 local Library = require("fanqielite.library")
 local NetworkTask = require("fanqielite.networktask")
@@ -137,6 +138,7 @@ function FanqieLite:init()
         and Persistence.copy(self.settings.data) or nil
     local unsafe_loaded_settings = Persistence.has_sensitive_fields(loaded_settings)
     self.storage = Storage:new()
+    self.qr_session = EphemeralSession.new()
     local changed
     self.library, changed = Library.load(
         self.settings:readSetting("library"),
@@ -763,13 +765,110 @@ function FanqieLite:show_local_search_results(query, results)
 end
 
 function FanqieLite:show_qr_import_status()
-    self:info("一次性扫码导入尚未开放。\n\n"
-        .. "当前版本没有发起账号授权，也没有请求或保存任何登录信息；"
-        .. "已有本地书架不受影响。\n\n"
-        .. "现在可以返回“我的本地书架”，选择：\n"
-        .. "1. 搜索或添加一本书\n"
-        .. "2. 从文件导入书架\n\n"
-        .. "扫码功能只有在安全审计和测试账号验证完成后才会开放。")
+    UIManager:show(ConfirmBox:new{
+        text = "一次性扫码导入（实验性）\n\n"
+            .. "本次授权只用于读取你在番茄官网的书架，并导入书名、作者、封面和官网提供的最近章节。"
+            .. "不会向账号写入阅读进度，也不会下载整本书。\n\n"
+            .. "二维码、Cookie 和 Token 只在内存中短暂使用，不写入设置、缓存或日志；"
+            .. "读取结束后会尝试调用官方退出。扫码失败、取消或超时不会改变本地书架。\n\n"
+            .. "二维码约 60 秒有效。请用番茄小说 App 扫码并在手机上确认，"
+            .. "确认成功后点按 Kindle 二维码页面继续。是否开始？",
+        cancel_text = _("暂不使用"),
+        ok_text = _("显示二维码"),
+        ok_callback = function() self:start_qr_import() end,
+    })
+end
+
+function FanqieLite:start_qr_import()
+    self:with_network(function()
+        local run_id, session_err = self.qr_session:start()
+        if not run_id then raise_user_error(session_err) end
+        local QrImportTask = require("fanqielite.qr_import_task")
+        local start, start_err = QrImportTask.begin()
+        if not start then
+            self.qr_session:force_clear()
+            raise_user_error(start_err)
+        end
+        local ready, ready_err = self.qr_session:qr_ready(
+            run_id, start.qr_payload, start.poll_ticket, start.expires_at)
+        if not ready then
+            self.qr_session:force_clear()
+            raise_user_error(ready_err)
+        end
+        local seconds = math.max(1, math.min(300, start.expires_at - os.time()))
+        local QRDisplay = require("fanqielite.qrdisplay")
+        self.qr_display = self.qr_display or QRDisplay.new()
+        local displayed, display_err = self.qr_display:show(
+            start.qr_payload, seconds, function()
+                UIManager:nextTick(function() self:continue_qr_import(run_id) end)
+            end)
+        if not displayed then
+            self.qr_session:force_clear()
+            raise_user_error(display_err)
+        end
+    end)
+end
+
+function FanqieLite:continue_qr_import(run_id)
+    local poll_ticket, ticket_err = self.qr_session:poll_ticket(run_id)
+    if not poll_ticket then
+        self.qr_session:force_clear()
+        self:info(ticket_err)
+        return
+    end
+    self:with_network(function()
+        local QrImportTask = require("fanqielite.qr_import_task")
+        local books, result = QrImportTask.finish(poll_ticket)
+        if not books then
+            self.qr_session:force_clear()
+            raise_user_error(result)
+        end
+        local prepared, notice = self.qr_session:prepare_remote_import(
+            run_id, books, result.logout_ok)
+        if not prepared then
+            self.qr_session:force_clear()
+            raise_user_error(notice)
+        end
+        local new_count, update_count = 0, 0
+        for _, book in ipairs(books) do
+            if Library.find(self.library, book.id) then update_count = update_count + 1
+            else new_count = new_count + 1 end
+        end
+        local progress_note = result.progress_found
+            and "已读取官网提供的最近章节；章节内位置不会同步。"
+            or "官网本次未提供可验证的阅读进度，只导入书架信息。"
+        local logout_note = notice and ("\n\n" .. notice) or ""
+        UIManager:show(ConfirmBox:new{
+            text = "官方书架读取完成，账号凭证已从插件内存中清除。\n\n"
+                .. "新增 " .. tostring(new_count) .. " 本，更新 "
+                .. tostring(update_count) .. " 本。\n" .. progress_note
+                .. "\n已有目录、章节缓存和本机阅读进度不会被覆盖。"
+                .. logout_note .. "\n\n是否导入本地书架？",
+            cancel_text = _("取消导入"),
+            ok_text = _("导入"),
+            cancel_callback = function()
+                self.qr_session:cancel(run_id, function() return true end)
+            end,
+            ok_callback = function() self:apply_qr_import(run_id) end,
+        })
+    end)
+end
+
+function FanqieLite:apply_qr_import(run_id)
+    local books, begin_err = self.qr_session:begin_commit(run_id)
+    if not books then self:info(begin_err); return end
+    local added, updated = Library.import_books(self.library, books)
+    if not self.active_book_id and books[1] then self.active_book_id = books[1].id end
+    local saved, save_err = self:save_state()
+    if not saved then
+        self.qr_session:complete_commit(run_id, false)
+        self:info(save_err)
+        return
+    end
+    self.qr_session:complete_commit(run_id, true)
+    self:info("扫码导入完成：新增 " .. tostring(added) .. " 本，更新 "
+        .. tostring(updated) .. " 本。\n\n账号登录未保存；首次打开新书时需要联网获取目录。", 6)
+    UIManager:nextTick(function() self:show_home() end)
 end
 
 function FanqieLite:choose_import_file()
@@ -889,9 +988,9 @@ function FanqieLite:show_settings()
         },
         {
             text = _("隐私与使用边界"), callback = function()
-                self:info("默认阅读只访问番茄官网公开内容。扫码导入目前尚未开放，"
-                    .. "没有发起账号授权；未来即使开放，也只用于一次性导入，"
-                    .. "不会保存账号登录。\n\n"
+                self:info("默认阅读只访问番茄官网公开内容。实验性扫码导入只用于一次性读取书架，"
+                    .. "Cookie、Token 和二维码票据只在内存中短暂使用，不会保存账号登录，"
+                    .. "也不会向番茄账号写入阅读进度。\n\n"
                     .. "插件不接入第三方书源、不下载全本，也不绕过付费、登录或章节锁定。"
                     .. "JSON 导入会拒绝凭证字段和异常数据；本地导出不含账号凭证、正文或缓存。")
             end,
@@ -1120,7 +1219,7 @@ function FanqieLite:show_home()
             callback = function() self:choose_import_file() end,
         },
         {
-            text = _("扫码导入我的番茄书架（尚未开放）"),
+            text = _("扫码导入我的番茄书架（实验性）"),
             callback = function() self:show_qr_import_status() end,
         },
     }

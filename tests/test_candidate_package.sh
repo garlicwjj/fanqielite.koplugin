@@ -54,6 +54,7 @@ fanqielite.koplugin/fanqielite/ephemeral_task.lua
 fanqielite.koplugin/fanqielite/ephemeral_http.lua
 fanqielite.koplugin/fanqielite/ephemeral_import_task.lua
 fanqielite.koplugin/fanqielite/ephemeral_result.lua
+fanqielite.koplugin/fanqielite/ephemeral_cookiejar.lua
 fanqielite.koplugin/fanqielite/http.lua
 fanqielite.koplugin/fanqielite/identifier.lua
 fanqielite.koplugin/fanqielite/import.lua
@@ -63,6 +64,8 @@ fanqielite.koplugin/fanqielite/parser.lua
 fanqielite.koplugin/fanqielite/persistence.lua
 fanqielite.koplugin/fanqielite/pua.lua
 fanqielite.koplugin/fanqielite/qrdisplay.lua
+fanqielite.koplugin/fanqielite/qr_import_task.lua
+fanqielite.koplugin/fanqielite/qr_protocol.lua
 fanqielite.koplugin/fanqielite/safeurl.lua
 fanqielite.koplugin/fanqielite/safetemporary.lua
 fanqielite.koplugin/fanqielite/search.lua
@@ -165,7 +168,8 @@ grep -Fq 'appName=muye' "$plugin_root/docs/QR_THREAT_MODEL.md"
 grep -Fq '/passport/web/get_qrcode/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '/passport/web/check_qrconnect/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 grep -Fq '/passport/web/logout/' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
-grep -Fq '不得启用真实扫码' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
+grep -Fq '只允许支撑明确标为“实验性”的入口' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
+grep -Fq '扫码导入通过 `qr_import_task.lua`' "$plugin_root/docs/SUBPROCESS_SECURITY_AUDIT.md"
 grep -Fq '复位函数自身异常时固定停止' "$plugin_root/docs/EPHEMERAL_HTTP_AUDIT.md"
 
 printf '%s\n' "candidate package tests passed"
